@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.local
+data/*.db
+data/*.db-*
+workspaces/
+.DS_Store
+*.tsbuildinfo
+.vite/
+coverage/
+
+.npm-cache/
+

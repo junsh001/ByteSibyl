@@ -1,0 +1,31 @@
+{
+  "name": "webaicoding",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Web-based AI coding agent + interactive tutorial game for learning modern LLM concepts (Skills/MCP/Agent). Powered by DeepSeek.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace @wac/server run dev",
+    "dev:web": "npm --workspace @wac/web run dev",
+    "build": "npm --workspace @wac/web run build",
+    "start": "NODE_ENV=production tsx apps/server/src/index.ts",
+    "serve": "npm run build && npm run start",
+    "db:push": "npm --workspace @wac/db run push",
+    "smoke": "tsx scripts/smoke-deepseek.ts",
+    "eval": "tsx scripts/eval/run.ts",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

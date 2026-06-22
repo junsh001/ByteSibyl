@@ -1,0 +1,18 @@
+services:
+  codeforge:
+    build: .
+    image: codeforge:latest
+    ports:
+      - '8787:8787'
+    environment:
+      # Provide your DeepSeek key here or via a .env file next to this compose file.
+      deepseek_KEY: ${deepseek_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      SANDBOX_TIMEOUT_MS: ${SANDBOX_TIMEOUT_MS:-20000}
+    volumes:
+      # Persist SQLite db + user project workspaces across restarts.
+      - codeforge-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  codeforge-data:

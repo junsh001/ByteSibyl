@@ -15,5 +15,5 @@
       "@wac/shared": ["../../packages/shared/src/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src/main.tsx", "src/App.tsx", "src/api.ts"]
 }

@@ -1,7 +1,63 @@
 /**
  * @wac/shared — the wire contract shared by the web client, the HTTP server,
- * and the agent core. Keep this dependency-free.
+ * and the agent runtime packages. Keep this dependency-free.
  */
+
+// ---------------------------------------------------------------------------
+// Phase 1: Web + Server shell contracts
+// ---------------------------------------------------------------------------
+
+export type SessionId = string;
+
+export interface HealthResponse {
+  ok: boolean;
+  service: 'web-ai-coding-agent-lab';
+  phase: 'phase-01-web-server-shell';
+  timestamp: string;
+}
+
+export type AgentSessionStatus = 'created' | 'idle';
+
+export interface AgentSession {
+  id: SessionId;
+  title: string;
+  status: AgentSessionStatus;
+  createdAt: string;
+}
+
+export interface CreateAgentSessionRequest {
+  title?: string;
+}
+
+export interface CreateAgentSessionResponse {
+  session: AgentSession;
+}
+
+export interface WorkspaceFileNode {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  children?: WorkspaceFileNode[];
+}
+
+export type AgentShellEvent =
+  | {
+      type: 'session.created';
+      session: AgentSession;
+    }
+  | {
+      type: 'session.connected';
+      sessionId: SessionId;
+      message: string;
+      timestamp: string;
+    }
+  | {
+      type: 'log.appended';
+      sessionId: SessionId;
+      level: 'info' | 'warn' | 'error';
+      message: string;
+      timestamp: string;
+    };
 
 // ---------------------------------------------------------------------------
 // Agent streaming protocol (server -> client over SSE).
@@ -135,7 +191,7 @@ export type Locale = 'zh' | 'en';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Serialize an AgentEvent as an SSE frame. */
-export function sseFrame(event: AgentEvent): string {
+/** Serialize a server event as an SSE frame. */
+export function sseFrame(event: AgentEvent | AgentShellEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }

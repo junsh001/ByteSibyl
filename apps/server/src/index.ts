@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
+import { ContextEngine } from '@wac/context-engine';
 import { createModelProvider } from '@wac/model-provider';
 import { ShellRunner } from '@wac/shell-runner';
 import { SessionStore } from '@wac/telemetry';
@@ -31,6 +32,13 @@ await sessionStore.load();
 const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
 const diagnostics = createDiagnosticsProvider(config.workspaceRoot);
+const contextEngine = new ContextEngine(
+  {
+    getWorkspaceTree: () => workspace.tree(),
+    getDiagnostics: () => diagnostics.getDiagnostics(),
+  },
+  { maxChars: config.contextBudgetChars },
+);
 const toolRegistry = createWorkspaceToolRegistry({ diagnostics: true });
 const toolRunner = new ToolRunner(toolRegistry, { workspace, diagnostics, trace: [] });
 const model = createModelProvider({
@@ -46,7 +54,7 @@ await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
 await registerDiagnosticsRoutes(app, diagnostics, workspace.root);
-await registerAgentRoutes(app, { model, toolRegistry, toolRunner, sessionStore });
+await registerAgentRoutes(app, { model, toolRegistry, toolRunner, contextEngine, sessionStore });
 await registerPatchRoutes(app, { workspace, sessionStore });
 await registerShellRoutes(app, { shellRunner, sessionStore });
 await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
@@ -54,7 +62,7 @@ await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-11-lsp-diagnostics',
+  phase: 'phase-12-context-engine',
   timestamp: new Date().toISOString(),
 }));
 

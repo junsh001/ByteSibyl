@@ -1,5 +1,5 @@
 {
-  "name": "@wac/agent-core",
+  "name": "@wac/context-engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,10 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wac/context-engine": "*",
-    "@wac/model-provider": "*",
-    "@wac/shared": "*",
-    "@wac/tool-system": "*"
+    "@wac/shared": "*"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

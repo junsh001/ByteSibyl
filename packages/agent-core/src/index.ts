@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ContextEngine } from '@wac/context-engine';
 import type { ModelProvider } from '@wac/model-provider';
 import type {
   AgentRunEvent,
@@ -14,6 +15,7 @@ export interface AgentLoopOptions {
   model: ModelProvider;
   tools: ToolDefinition[];
   toolRunner: ToolRunner;
+  contextEngine?: ContextEngine;
   maxIterations?: number;
   signal?: AbortSignal;
   stepDelayMs?: number;
@@ -60,12 +62,29 @@ export async function* runAgentLoop(
       maxIterations,
     };
 
-    const requestSummary = summarizeModelRequest(messages, options.tools);
+    const contextResult = options.contextEngine
+      ? await options.contextEngine.build({
+          task: request.message,
+          messages,
+          tools: options.tools,
+        })
+      : undefined;
+    if (contextResult) {
+      yield {
+        type: 'agent.context_summary',
+        summary: contextResult.summary,
+      };
+    }
+
+    const modelMessages = contextResult
+      ? withContextMessage(messages, contextResult.contextMessage)
+      : messages;
+    const requestSummary = summarizeModelRequest(modelMessages, options.tools);
     const modelStartedAt = Date.now();
     let response;
     try {
       response = await options.model.complete({
-        messages,
+        messages: modelMessages,
         tools: options.tools,
       });
     } catch (err) {
@@ -209,6 +228,14 @@ function summarizeModelRequest(messages: ModelMessage[], tools: ToolDefinition[]
 
 function summarizeModelResponse(content: string | undefined, toolCallCount: number): string {
   return `content=${content ? content.slice(0, 80) : 'none'}, toolCalls=${toolCallCount}`;
+}
+
+function withContextMessage(messages: ModelMessage[], contextMessage: ModelMessage): ModelMessage[] {
+  const [first, ...rest] = messages;
+  if (first?.role === 'system') {
+    return [first, contextMessage, ...rest];
+  }
+  return [contextMessage, ...messages];
 }
 
 function wait(ms: number, signal?: AbortSignal): Promise<void> {

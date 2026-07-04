@@ -447,6 +447,14 @@ button {
   background: #fffbf7;
 }
 
+.context-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #d3e0df;
+  border-radius: 8px;
+  background: #f7fcfb;
+}
+
 .diagnostics-header {
   display: flex;
   align-items: flex-start;

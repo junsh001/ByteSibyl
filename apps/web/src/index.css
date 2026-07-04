@@ -463,6 +463,14 @@ button {
   background: #fcfdf4;
 }
 
+.skill-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #d6dceb;
+  border-radius: 8px;
+  background: #f8faff;
+}
+
 .todo-state-list {
   display: grid;
   gap: 7px;

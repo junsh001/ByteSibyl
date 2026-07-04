@@ -25,6 +25,7 @@
     "@wac/self-repair": "*",
     "@wac/shell-runner": "*",
     "@wac/shared": "*",
+    "@wac/skills": "*",
     "@wac/telemetry": "*",
     "@wac/tool-system": "*",
     "@wac/workspace": "*",

@@ -17,6 +17,7 @@ import type {
   SearchTextResponse,
   ShellCommandRequest,
   ShellCommandResponse,
+  SkillListResponse,
   StartSelfRepairRequest,
   StartSelfRepairResponse,
   SessionLogResponse,
@@ -49,6 +50,7 @@ export const api = {
   searchWorkspace: (query: string) =>
     fetch(`/api/workspace/search?q=${encodeURIComponent(query)}`).then(json<SearchTextResponse>),
   tools: () => fetch('/api/tools').then(json<ToolListResponse>),
+  skills: () => fetch('/api/skills').then(json<SkillListResponse>),
   todos: () => fetch('/api/todos').then(json<TodoListResponse>),
   runTool: (request: ToolCallRequest) =>
     fetch('/api/tools/run', {

@@ -12,6 +12,8 @@ import type {
   SearchTextMatch,
   SelfRepairAttempt,
   ShellCommandResult,
+  SkillInfo,
+  SkillSelection,
   SessionLogResponse,
   ToolDefinition,
   ToolResult,
@@ -34,6 +36,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [currentSkill, setCurrentSkill] = useState<SkillSelection | null>(null);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
   const [shellCommand, setShellCommand] = useState('npm run typecheck');
@@ -63,6 +67,7 @@ export default function App() {
       api.workspace(),
       api.workspaceTree(),
       api.tools(),
+      api.skills(),
       api.diagnostics(),
       api.todos(),
     ])
@@ -73,6 +78,7 @@ export default function App() {
           workspaceResult,
           treeResult,
           toolResult,
+          skillResult,
           diagnosticsResult,
           todoResult,
         ]) => {
@@ -81,6 +87,7 @@ export default function App() {
           setWorkspace(workspaceResult);
           setTree(treeResult);
           setTools(toolResult.tools);
+          setSkills(skillResult.skills);
           setDiagnostics(diagnosticsResult);
           setTodos(todoResult.todos);
           const first = findFirstFile(treeResult);
@@ -132,7 +139,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 13 Todo Planner');
+    const result = await api.createSession('Phase 14 Skills');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -181,7 +188,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 13 Todo Planner')).session;
+      session ?? (await api.createSession('Phase 14 Skills')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -296,7 +303,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 13 Todo Planner')).session;
+        session ?? (await api.createSession('Phase 14 Skills')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -319,7 +326,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 13 Todo Planner')).session;
+        session ?? (await api.createSession('Phase 14 Skills')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -331,6 +338,9 @@ export default function App() {
           }
           if (event.type === 'agent.todo_updated') {
             setTodos(event.todos);
+          }
+          if (event.type === 'agent.skill_selected') {
+            setCurrentSkill(event.selection);
           }
           if (event.type === 'agent.done' || event.type === 'agent.error') {
             setAgentRunning(false);
@@ -371,7 +381,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 13 Todo Planner')).session;
+        session ?? (await api.createSession('Phase 14 Skills')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -423,7 +433,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 13</p>
+          <p className="eyebrow">Phase 14</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -501,7 +511,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Todo Planner 会把 Agent 的当前步骤显式显示为任务状态机。</p>
+            <p>Skills 会把可复用工作流注入 Agent 上下文，但不会绕过工具和审批边界。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -592,6 +602,22 @@ export default function App() {
           <div className="planner-box">
             <div className="todo-title">Todo Planner</div>
             <TodoPanel todos={todos} />
+          </div>
+          <div className="skill-box">
+            <div className="todo-title">Skills</div>
+            <div className="state-row">
+              <span>Loaded</span>
+              <strong>{skills.length}</strong>
+            </div>
+            <div className="state-row">
+              <span>Current</span>
+              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
+            </div>
+            <div className="repair-message">
+              {currentSkill
+                ? `${currentSkill.reason} · ${currentSkill.skill.description}`
+                : '运行 Agent Loop 后会根据任务选择匹配的 skill。'}
+            </div>
           </div>
           <div className="repair-box">
             <div className="todo-title">Self-Repair Loop</div>
@@ -806,6 +832,10 @@ export default function App() {
               <span>Todos</span>
               <strong>{todos.length}</strong>
             </div>
+            <div className="state-row">
+              <span>Skill</span>
+              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
+            </div>
             <button
               className="secondary-action"
               type="button"
@@ -864,6 +894,7 @@ export default function App() {
               <li className={diagnostics ? 'done' : ''}>LSP Diagnostics</li>
               <li className={latestContextSummary ? 'done' : ''}>Context Engine</li>
               <li className={todos.length > 0 ? 'done' : ''}>Todo Planner</li>
+              <li className={currentSkill ? 'done' : ''}>Skills</li>
             </ul>
           </div>
         </aside>
@@ -871,7 +902,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 13 和 Phase 16 扩展</small>
+            <small>Phase 14 和 Phase 16 扩展</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -1020,6 +1051,8 @@ function formatAgentEvent(event: AgentRunEvent): string {
       return `context_summary budget=${event.summary.budget.usedChars}/${event.summary.budget.maxChars} files=${event.summary.relevantFiles.length} diagnostics=${event.summary.diagnostics.length} truncated=${event.summary.budget.truncated}`;
     case 'agent.todo_updated':
       return `todo_updated ${event.reason} active=${event.todos.find((todo) => todo.status === 'in_progress')?.title ?? 'none'}`;
+    case 'agent.skill_selected':
+      return `skill_selected ${event.selection.skill.name} ${event.selection.reason}`;
     case 'agent.model_call':
       return `model_call ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`;
     case 'agent.message':

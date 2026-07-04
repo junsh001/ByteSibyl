@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
+import { WorkspaceService } from '@wac/workspace';
 import {
   sseFrame,
   type AgentSession,
@@ -13,16 +14,19 @@ import {
   type SessionId,
 } from '@wac/shared';
 import { config } from './config.js';
+import { registerWorkspaceRoutes } from './routes/workspace.js';
 
 const sessions = new Map<SessionId, AgentSession>();
+const workspace = new WorkspaceService(config.workspaceRoot);
 
 const app = Fastify({ logger: { level: 'info' }, bodyLimit: 10 * 1024 * 1024 });
 await app.register(cors, { origin: true });
+await registerWorkspaceRoutes(app, workspace);
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-01-web-server-shell',
+  phase: 'phase-02-workspace-filesystem',
   timestamp: new Date().toISOString(),
 }));
 

@@ -12,7 +12,7 @@ export type SessionId = string;
 export interface HealthResponse {
   ok: boolean;
   service: 'web-ai-coding-agent-lab';
-  phase: 'phase-01-web-server-shell';
+  phase: 'phase-01-web-server-shell' | 'phase-02-workspace-filesystem';
   timestamp: string;
 }
 
@@ -38,6 +38,27 @@ export interface WorkspaceFileNode {
   path: string;
   type: 'file' | 'dir';
   children?: WorkspaceFileNode[];
+}
+
+export interface WorkspaceInfo {
+  rootName: string;
+}
+
+export interface ReadWorkspaceFileResponse {
+  path: string;
+  content: string;
+}
+
+export interface SearchTextMatch {
+  path: string;
+  line: number;
+  column: number;
+  snippet: string;
+}
+
+export interface SearchTextResponse {
+  query: string;
+  matches: SearchTextMatch[];
 }
 
 export type AgentShellEvent =

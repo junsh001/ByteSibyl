@@ -1,17 +1,36 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AgentSession, AgentShellEvent, HealthResponse } from '@wac/shared';
+import type {
+  AgentSession,
+  AgentShellEvent,
+  HealthResponse,
+  SearchTextMatch,
+  WorkspaceFileNode,
+  WorkspaceInfo,
+} from '@wac/shared';
 import { api, connectSessionEvents } from './api';
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
+  const [tree, setTree] = useState<WorkspaceFileNode | null>(null);
+  const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [session, setSession] = useState<AgentSession | null>(null);
   const [events, setEvents] = useState<AgentShellEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api
-      .health()
-      .then(setHealth)
+    void Promise.all([api.health(), api.workspace(), api.workspaceTree()])
+      .then(([healthResult, workspaceResult, treeResult]) => {
+        setHealth(healthResult);
+        setWorkspace(workspaceResult);
+        setTree(treeResult);
+        const first = findFirstFile(treeResult);
+        if (first) {
+          void openFile(first.path);
+        }
+      })
       .catch((err: Error) => setError(err.message));
   }, []);
 
@@ -31,16 +50,32 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 1 Web Shell');
+    const result = await api.createSession('Phase 2 Workspace');
     setSession(result.session);
     setEvents([{ type: 'session.created', session: result.session }]);
+  }
+
+  async function openFile(path: string) {
+    setError(null);
+    const result = await api.readWorkspaceFile(path);
+    setSelectedFile(result);
+  }
+
+  async function search() {
+    setError(null);
+    if (!searchQuery.trim()) {
+      setSearchMatches([]);
+      return;
+    }
+    const result = await api.searchWorkspace(searchQuery);
+    setSearchMatches(result.matches);
   }
 
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 1</p>
+          <p className="eyebrow">Phase 2</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -52,27 +87,59 @@ export default function App() {
       <main className="ide-grid">
         <aside className="panel file-tree">
           <div className="panel-header">
-            <span>Workspace</span>
-            <small>Phase 2 接入真实文件树</small>
+            <span>{workspace?.rootName ?? 'Workspace'}</span>
+            <small>{tree ? `${countFiles(tree)} files` : 'loading'}</small>
           </div>
-          <div className="placeholder-list">
-            <div className="tree-row folder">examples</div>
-            <div className="tree-row file">buggy-ts-project</div>
-            <div className="tree-row file">README.md</div>
+          <div className="workspace-tools">
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void search();
+              }}
+              placeholder="搜索文本"
+            />
+            <button type="button" onClick={() => void search()}>
+              搜索
+            </button>
           </div>
+          <div className="tree-scroll">
+            {tree ? (
+              <FileTreeNode node={tree} selectedPath={selectedFile?.path} onOpen={openFile} />
+            ) : (
+              <div className="empty-state">加载中...</div>
+            )}
+          </div>
+          {searchMatches.length > 0 ? (
+            <div className="search-results">
+              {searchMatches.map((match) => (
+                <button
+                  type="button"
+                  key={`${match.path}:${match.line}:${match.column}`}
+                  onClick={() => void openFile(match.path)}
+                >
+                  <strong>{match.path}</strong>
+                  <span>
+                    {match.line}:{match.column} {match.snippet}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </aside>
 
         <section className="panel editor">
           <div className="panel-header">
-            <span>Editor</span>
-            <small>Monaco 容器占位</small>
+            <span>{selectedFile?.path ?? 'Editor'}</span>
+            <small>{selectedFile ? `${selectedFile.content.split(/\r?\n/).length} lines` : ''}</small>
           </div>
           <div className="editor-placeholder">
-            <div className="line-number">1</div>
-            <pre>{`// Phase 1 只搭建 Web IDE 壳子
-// 文件读取、编辑和诊断会在后续阶段接入
-
-export const goal = 'show the agent workspace shell';`}</pre>
+            <div className="line-gutter">
+              {(selectedFile?.content.split(/\r?\n/) ?? ['']).map((_, index) => (
+                <div key={index}>{index + 1}</div>
+              ))}
+            </div>
+            <pre>{selectedFile?.content ?? '选择左侧文件'}</pre>
           </div>
         </section>
 
@@ -85,15 +152,16 @@ export const goal = 'show the agent workspace shell';`}</pre>
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>输入框和 Agent Loop 会在 Phase 4 接入。</p>
-            <p>当前阶段只验证 session 创建和事件通道。</p>
+            <p>Agent Loop 将在 Phase 4 接入。</p>
+            <p>当前 workspace 可作为后续工具系统的只读上下文来源。</p>
           </div>
           <div className="todo-box">
             <div className="todo-title">Todo Plan</div>
             <ul>
               <li className="done">Web IDE 五区布局</li>
-              <li className={session ? 'done' : ''}>创建 Session</li>
-              <li>等待后续阶段接入工具与 Agent Loop</li>
+              <li className="done">Workspace 文件树</li>
+              <li className={selectedFile ? 'done' : ''}>读取文件内容</li>
+              <li className={searchMatches.length > 0 ? 'done' : ''}>搜索文本</li>
             </ul>
           </div>
         </aside>
@@ -125,4 +193,62 @@ export const goal = 'show the agent workspace shell';`}</pre>
       </div>
     </div>
   );
+}
+
+function FileTreeNode({
+  node,
+  selectedPath,
+  onOpen,
+  depth = 0,
+}: {
+  node: WorkspaceFileNode;
+  selectedPath?: string;
+  onOpen: (path: string) => Promise<void>;
+  depth?: number;
+}) {
+  if (node.type === 'dir') {
+    return (
+      <div>
+        {node.path ? (
+          <div className="tree-row folder" style={{ paddingLeft: 8 + depth * 14 }}>
+            {node.name}
+          </div>
+        ) : null}
+        {node.children?.map((child) => (
+          <FileTreeNode
+            key={child.path || child.name}
+            node={child}
+            selectedPath={selectedPath}
+            onOpen={onOpen}
+            depth={node.path ? depth + 1 : depth}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={node.path === selectedPath ? 'tree-row file selected' : 'tree-row file'}
+      style={{ paddingLeft: 8 + depth * 14 }}
+      onClick={() => void onOpen(node.path)}
+    >
+      {node.name}
+    </button>
+  );
+}
+
+function findFirstFile(node: WorkspaceFileNode): WorkspaceFileNode | null {
+  if (node.type === 'file') return node;
+  for (const child of node.children ?? []) {
+    const found = findFirstFile(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+function countFiles(node: WorkspaceFileNode): number {
+  if (node.type === 'file') return 1;
+  return (node.children ?? []).reduce((total, child) => total + countFiles(child), 0);
 }

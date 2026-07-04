@@ -143,12 +143,55 @@ button {
   padding: 10px;
 }
 
+.workspace-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid #e8e0d2;
+}
+
+.workspace-tools input {
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #d7ccbc;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #2f2a24;
+}
+
+.workspace-tools button,
+.search-results button {
+  border: 1px solid #d7ccbc;
+  border-radius: 6px;
+  background: #fbfaf6;
+  color: #3d372f;
+  cursor: pointer;
+}
+
+.workspace-tools button:hover,
+.search-results button:hover {
+  border-color: #285f4b;
+}
+
+.tree-scroll {
+  max-height: calc(100% - 96px);
+  overflow: auto;
+  padding: 8px;
+}
+
 .tree-row {
+  display: block;
+  width: 100%;
   min-height: 30px;
   padding: 6px 8px;
+  border: 0;
   border-radius: 6px;
+  background: transparent;
   color: #4f473e;
   font-size: 13px;
+  text-align: left;
 }
 
 .tree-row.folder {
@@ -156,12 +199,52 @@ button {
 }
 
 .tree-row.file {
-  margin-left: 14px;
+  cursor: pointer;
+}
+
+.tree-row.file:hover,
+.tree-row.file.selected {
+  background: #efe8dc;
+}
+
+.search-results {
+  max-height: 150px;
+  overflow: auto;
+  padding: 8px 10px 10px;
+  border-top: 1px solid #e8e0d2;
+}
+
+.search-results button {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 7px;
+  text-align: left;
+}
+
+.search-results strong,
+.search-results span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-results span {
+  margin-top: 3px;
+  color: #776d61;
+  font-size: 12px;
+}
+
+.empty-state {
+  padding: 12px;
+  color: #81786c;
+  font-size: 13px;
 }
 
 .editor-placeholder {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   height: calc(100% - 43px);
   background: #fbfaf6;
   color: #3a352f;
@@ -169,11 +252,13 @@ button {
   font-size: 13px;
 }
 
-.line-number {
-  padding-top: 16px;
+.line-gutter {
+  overflow: hidden;
+  padding: 16px 0;
   border-right: 1px solid #e8e0d2;
   color: #9b9285;
   text-align: center;
+  line-height: 1.7;
 }
 
 .editor-placeholder pre {

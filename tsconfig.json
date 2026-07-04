@@ -3,6 +3,7 @@
   "files": [],
   "references": [
     { "path": "./packages/shared" },
+    { "path": "./packages/workspace" },
     { "path": "./packages/db" },
     { "path": "./packages/agent" },
     { "path": "./apps/server" },

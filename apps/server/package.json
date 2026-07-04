@@ -21,6 +21,7 @@
     "@wac/model-provider": "*",
     "@wac/patch-engine": "*",
     "@wac/permission": "*",
+    "@wac/planner": "*",
     "@wac/self-repair": "*",
     "@wac/shell-runner": "*",
     "@wac/shared": "*",

@@ -455,6 +455,74 @@ button {
   background: #f7fcfb;
 }
 
+.planner-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #dde1c8;
+  border-radius: 8px;
+  background: #fcfdf4;
+}
+
+.todo-state-list {
+  display: grid;
+  gap: 7px;
+}
+
+.todo-state-empty {
+  padding: 8px;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #756d5c;
+  font-size: 12px;
+}
+
+.todo-state-item {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 4px 8px;
+  padding: 8px;
+  border: 1px solid #e4e5d4;
+  border-radius: 7px;
+  background: #fffef8;
+  font-size: 12px;
+}
+
+.todo-state-item span {
+  align-self: start;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #d7d0c2;
+  color: #2d2924;
+  font-weight: 700;
+  text-align: center;
+}
+
+.todo-state-item strong,
+.todo-state-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todo-state-item small {
+  grid-column: 2;
+  color: #6f675b;
+}
+
+.todo-state-item.in_progress span {
+  background: #2d6b59;
+  color: white;
+}
+
+.todo-state-item.done span {
+  background: #668a3e;
+  color: white;
+}
+
+.todo-state-item.blocked span {
+  background: #b3432f;
+  color: white;
+}
+
 .diagnostics-header {
   display: flex;
   align-items: flex-start;

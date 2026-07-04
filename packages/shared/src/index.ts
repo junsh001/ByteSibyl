@@ -24,7 +24,8 @@ export interface HealthResponse {
     | 'phase-09-self-repair-loop'
     | 'phase-10-model-provider-integration'
     | 'phase-11-lsp-diagnostics'
-    | 'phase-12-context-engine';
+    | 'phase-12-context-engine'
+    | 'phase-13-todo-planner';
   timestamp: string;
 }
 
@@ -66,6 +67,7 @@ export type AgentRunStatus =
 
 export type AgentRunStepType =
   | 'context_summary'
+  | 'todo'
   | 'model_call'
   | 'tool_call'
   | 'tool_result'
@@ -173,6 +175,21 @@ export interface ContextSummary {
   compressedObservationCount: number;
   budget: ContextBudgetStatus;
   generatedAt: string;
+}
+
+export type TodoStatus = 'pending' | 'in_progress' | 'done' | 'blocked';
+
+export interface TodoItem {
+  id: string;
+  title: string;
+  status: TodoStatus;
+  detail?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TodoListResponse {
+  todos: TodoItem[];
 }
 
 export type PatchProposalId = string;
@@ -514,6 +531,11 @@ export type AgentRunEvent =
   | {
       type: 'agent.context_summary';
       summary: ContextSummary;
+    }
+  | {
+      type: 'agent.todo_updated';
+      todos: TodoItem[];
+      reason: string;
     }
   | {
       type: 'agent.model_call';

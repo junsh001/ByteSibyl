@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { runAgentLoop } from '@wac/agent-core';
 import type { ContextEngine } from '@wac/context-engine';
 import type { ModelProvider } from '@wac/model-provider';
+import type { TodoPlanner } from '@wac/planner';
 import {
   sseFrame,
   type AgentRunEvent,
@@ -19,6 +20,7 @@ export async function registerAgentRoutes(
     toolRegistry: ToolRegistry;
     toolRunner: ToolRunner;
     contextEngine: ContextEngine;
+    planner: TodoPlanner;
     sessionStore: SessionStore;
   },
 ): Promise<void> {
@@ -71,6 +73,7 @@ export async function registerAgentRoutes(
           tools: deps.toolRegistry.list(),
           toolRunner: deps.toolRunner,
           contextEngine: deps.contextEngine,
+          planner: deps.planner,
           maxIterations: 6,
           signal: controller.signal,
           stepDelayMs: 150,
@@ -162,6 +165,8 @@ function classifyStep(event: AgentRunEvent): AgentRunStepType {
       return 'status';
     case 'agent.context_summary':
       return 'context_summary';
+    case 'agent.todo_updated':
+      return 'todo';
     case 'agent.model_call':
       return 'model_call';
     case 'agent.tool_call':
@@ -189,6 +194,8 @@ function titleForEvent(event: AgentRunEvent): string {
       return `Model iteration ${event.iteration}/${event.maxIterations}`;
     case 'agent.context_summary':
       return `Context summary ${event.summary.budget.usedChars}/${event.summary.budget.maxChars} chars`;
+    case 'agent.todo_updated':
+      return `Todo updated: ${event.reason}`;
     case 'agent.model_call':
       return `Model call ${event.call.provider}/${event.call.model} ${event.call.status}`;
     case 'agent.message':

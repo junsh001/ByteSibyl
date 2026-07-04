@@ -23,6 +23,7 @@ import type {
   ToolCallRequest,
   ToolListResponse,
   ToolResult,
+  TodoListResponse,
   VerifySelfRepairRequest,
   VerifySelfRepairResponse,
   WorkspaceFileNode,
@@ -48,6 +49,7 @@ export const api = {
   searchWorkspace: (query: string) =>
     fetch(`/api/workspace/search?q=${encodeURIComponent(query)}`).then(json<SearchTextResponse>),
   tools: () => fetch('/api/tools').then(json<ToolListResponse>),
+  todos: () => fetch('/api/todos').then(json<TodoListResponse>),
   runTool: (request: ToolCallRequest) =>
     fetch('/api/tools/run', {
       method: 'POST',

@@ -367,6 +367,31 @@ button {
   background: #fbfaf6;
 }
 
+.session-state-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #dbe4dd;
+  border-radius: 8px;
+  background: #f8fbf7;
+}
+
+.state-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  color: #5f564d;
+  font-size: 12px;
+}
+
+.state-row strong {
+  overflow: hidden;
+  color: #285f4b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .todo-title {
   margin-bottom: 8px;
   font-size: 13px;

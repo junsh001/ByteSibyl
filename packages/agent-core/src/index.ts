@@ -13,6 +13,8 @@ export interface AgentLoopOptions {
   tools: ToolDefinition[];
   toolRunner: ToolRunner;
   maxIterations?: number;
+  signal?: AbortSignal;
+  stepDelayMs?: number;
 }
 
 export async function* runAgentLoop(
@@ -20,6 +22,7 @@ export async function* runAgentLoop(
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentRunEvent> {
   const maxIterations = request.maxIterations ?? options.maxIterations ?? 6;
+  const stepDelayMs = options.stepDelayMs ?? 0;
   const messages: ModelMessage[] = [
     {
       role: 'system',
@@ -39,6 +42,16 @@ export async function* runAgentLoop(
   };
 
   for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
+    if (options.signal?.aborted) {
+      yield cancelledEvent();
+      return;
+    }
+    await wait(stepDelayMs, options.signal);
+    if (options.signal?.aborted) {
+      yield cancelledEvent();
+      return;
+    }
+
     yield {
       type: 'agent.iteration',
       iteration,
@@ -49,6 +62,10 @@ export async function* runAgentLoop(
       messages,
       tools: options.tools,
     });
+    if (options.signal?.aborted) {
+      yield cancelledEvent();
+      return;
+    }
 
     if (response.content) {
       messages.push({ role: 'assistant', content: response.content });
@@ -69,10 +86,21 @@ export async function* runAgentLoop(
     }
 
     for (const toolCall of toolCalls) {
+      if (options.signal?.aborted) {
+        yield cancelledEvent();
+        return;
+      }
+
       yield {
         type: 'agent.tool_call',
         call: toolCall,
       };
+
+      await wait(stepDelayMs, options.signal);
+      if (options.signal?.aborted) {
+        yield cancelledEvent();
+        return;
+      }
 
       const result = await options.toolRunner.run(toolCall.name, toolCall.input);
       yield {
@@ -99,3 +127,25 @@ export async function* runAgentLoop(
 }
 
 export type { ToolCallRequest };
+
+function cancelledEvent(): AgentRunEvent {
+  return {
+    type: 'agent.done',
+    finishReason: 'cancelled',
+  };
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}

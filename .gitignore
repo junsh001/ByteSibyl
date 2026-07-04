@@ -6,6 +6,7 @@ build/
 .env.local
 data/*.db
 data/*.db-*
+data/session-log.json
 workspaces/
 .DS_Store
 *.tsbuildinfo
@@ -13,4 +14,3 @@ workspaces/
 coverage/
 
 .npm-cache/
-

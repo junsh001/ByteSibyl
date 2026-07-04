@@ -10,6 +10,9 @@ import type {
   AgentRunStepType,
   AgentSession,
   AgentSessionStatus,
+  PatchProposal,
+  PatchProposalId,
+  PatchProposalStatus,
   SessionId,
   SessionLogResponse,
 } from '@wac/shared';
@@ -17,11 +20,13 @@ import type {
 interface SessionStoreSnapshot {
   sessions: AgentSession[];
   runs: AgentRunRecord[];
+  patches?: PatchProposal[];
 }
 
 export class SessionStore {
   private readonly sessions = new Map<SessionId, AgentSession>();
   private readonly runs = new Map<AgentRunId, AgentRunRecord>();
+  private readonly patches = new Map<PatchProposalId, PatchProposal>();
 
   constructor(private readonly filePath: string) {}
 
@@ -31,8 +36,10 @@ export class SessionStore {
       const snapshot = JSON.parse(raw) as SessionStoreSnapshot;
       this.sessions.clear();
       this.runs.clear();
+      this.patches.clear();
       for (const session of snapshot.sessions ?? []) this.sessions.set(session.id, session);
       for (const run of snapshot.runs ?? []) this.runs.set(run.id, run);
+      for (const patch of snapshot.patches ?? []) this.patches.set(patch.id, patch);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -48,6 +55,10 @@ export class SessionStore {
 
   getRun(id: AgentRunId): AgentRunRecord | undefined {
     return this.runs.get(id);
+  }
+
+  getPatch(id: PatchProposalId): PatchProposal | undefined {
+    return this.patches.get(id);
   }
 
   async createSession(title?: string): Promise<AgentSession> {
@@ -135,12 +146,32 @@ export class SessionStore {
     return step;
   }
 
+  async savePatchProposal(proposal: PatchProposal): Promise<PatchProposal> {
+    this.patches.set(proposal.id, proposal);
+    await this.save();
+    return proposal;
+  }
+
+  async updatePatchStatus(
+    id: PatchProposalId,
+    status: PatchProposalStatus,
+  ): Promise<PatchProposal> {
+    const patch = this.requirePatch(id);
+    const updated = { ...patch, status, updatedAt: new Date().toISOString() };
+    this.patches.set(id, updated);
+    await this.save();
+    return updated;
+  }
+
   getSessionLog(sessionId: SessionId): SessionLogResponse {
     const session = this.requireSession(sessionId);
     const runs = [...this.runs.values()]
       .filter((run) => run.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { session, runs };
+    const patches = [...this.patches.values()]
+      .filter((patch) => patch.sessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { session, runs, patches };
   }
 
   private requireSession(id: SessionId): AgentSession {
@@ -155,10 +186,17 @@ export class SessionStore {
     return run;
   }
 
+  private requirePatch(id: PatchProposalId): PatchProposal {
+    const patch = this.patches.get(id);
+    if (!patch) throw new Error(`patch not found: ${id}`);
+    return patch;
+  }
+
   private async save(): Promise<void> {
     const snapshot: SessionStoreSnapshot = {
       sessions: this.listSessions(),
       runs: [...this.runs.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      patches: [...this.patches.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;

@@ -17,7 +17,8 @@ export interface HealthResponse {
     | 'phase-02-workspace-filesystem'
     | 'phase-03-tool-system'
     | 'phase-04-agent-loop'
-    | 'phase-05-session-state';
+    | 'phase-05-session-state'
+    | 'phase-06-patch-engine';
   timestamp: string;
 }
 
@@ -89,6 +90,7 @@ export interface AgentRunRecord {
 export interface SessionLogResponse {
   session: AgentSession;
   runs: AgentRunRecord[];
+  patches: PatchProposal[];
 }
 
 export interface WorkspaceFileNode {
@@ -117,6 +119,52 @@ export interface SearchTextMatch {
 export interface SearchTextResponse {
   query: string;
   matches: SearchTextMatch[];
+}
+
+export type PatchProposalId = string;
+
+export type PatchProposalStatus = 'proposed' | 'discarded';
+
+export type PatchLineType = 'context' | 'add' | 'remove';
+
+export interface PatchLine {
+  type: PatchLineType;
+  content: string;
+  oldLine?: number;
+  newLine?: number;
+}
+
+export interface PatchHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: PatchLine[];
+}
+
+export interface PatchProposal {
+  id: PatchProposalId;
+  sessionId?: SessionId;
+  path: string;
+  status: PatchProposalStatus;
+  additions: number;
+  deletions: number;
+  oldLineCount: number;
+  newLineCount: number;
+  hunks: PatchHunk[];
+  unifiedDiff: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePatchPreviewRequest {
+  sessionId?: SessionId;
+  path: string;
+  updatedContent: string;
+}
+
+export interface CreatePatchPreviewResponse {
+  proposal: PatchProposal;
 }
 
 export type JsonSchemaType = 'object' | 'string' | 'number' | 'boolean' | 'array';

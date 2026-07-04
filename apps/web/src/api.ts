@@ -3,8 +3,11 @@ import type {
   AgentRunRequest,
   AgentRunId,
   AgentShellEvent,
+  CreatePatchPreviewRequest,
+  CreatePatchPreviewResponse,
   CreateAgentSessionResponse,
   HealthResponse,
+  PatchProposal,
   ReadWorkspaceFileResponse,
   SearchTextResponse,
   SessionLogResponse,
@@ -48,6 +51,16 @@ export const api = {
     ),
   sessionLog: (sessionId: string) =>
     fetch(`/api/sessions/${sessionId}/log`).then(json<SessionLogResponse>),
+  createPatchPreview: (request: CreatePatchPreviewRequest) =>
+    fetch('/api/patches/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<CreatePatchPreviewResponse>),
+  discardPatch: (id: string) =>
+    fetch(`/api/patches/${id}/discard`, { method: 'POST' }).then(
+      json<{ proposal: PatchProposal }>,
+    ),
   createSession: (title?: string) =>
     fetch('/api/sessions', {
       method: 'POST',

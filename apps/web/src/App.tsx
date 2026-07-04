@@ -5,6 +5,7 @@ import type {
   AgentSession,
   AgentShellEvent,
   HealthResponse,
+  PatchProposal,
   SearchTextMatch,
   SessionLogResponse,
   ToolDefinition,
@@ -23,6 +24,8 @@ export default function App() {
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
+  const [patchDraft, setPatchDraft] = useState('');
+  const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
   const [agentPrompt, setAgentPrompt] = useState('查找 formatUser 并读取相关文件');
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
@@ -64,7 +67,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 5 Session State');
+    const result = await api.createSession('Phase 6 Patch Preview');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -81,6 +84,38 @@ export default function App() {
     setError(null);
     const result = await api.readWorkspaceFile(path);
     setSelectedFile(result);
+    setPatchDraft(result.content);
+    setPatchProposal(null);
+  }
+
+  async function createPatchPreview() {
+    if (!selectedFile) return;
+    setError(null);
+    try {
+      const activeSession = session ?? (await api.createSession('Phase 6 Patch Preview')).session;
+      setSession(activeSession);
+      const result = await api.createPatchPreview({
+        sessionId: activeSession.id,
+        path: selectedFile.path,
+        updatedContent: patchDraft,
+      });
+      setPatchProposal(result.proposal);
+      await refreshSessionLog(activeSession);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function discardPatch() {
+    if (!patchProposal) return;
+    setError(null);
+    try {
+      const result = await api.discardPatch(patchProposal.id);
+      setPatchProposal(result.proposal);
+      await refreshSessionLog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function search() {
@@ -109,7 +144,7 @@ export default function App() {
     setAgentRunning(true);
     setCurrentRunId(null);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 5 Session State')).session;
+      const activeSession = session ?? (await api.createSession('Phase 6 Patch Preview')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -157,7 +192,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 5</p>
+          <p className="eyebrow">Phase 6</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -234,8 +269,34 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>当前 Session 状态由 server 维护，并写入本地 session log。</p>
-            <p>长任务可通过 run controller 取消，事件和 step 会保留。</p>
+            <p>Patch Engine 会基于当前文件和草稿内容生成 proposed diff。</p>
+            <p>Phase 6 只做 Diff Preview 和 patch history，不写入文件。</p>
+          </div>
+          <div className="patch-box">
+            <div className="todo-title">Patch Draft</div>
+            <small>{selectedFile?.path ?? '选择文件后编辑草稿'}</small>
+            <textarea
+              value={patchDraft}
+              disabled={!selectedFile}
+              onChange={(event) => setPatchDraft(event.target.value)}
+              rows={6}
+            />
+            <button
+              className="primary-action compact"
+              type="button"
+              disabled={!selectedFile}
+              onClick={() => void createPatchPreview()}
+            >
+              生成 Diff Preview
+            </button>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={!patchProposal || patchProposal.status === 'discarded'}
+              onClick={() => void discardPatch()}
+            >
+              丢弃 Patch Proposal
+            </button>
           </div>
           <div className="agent-run-box">
             <label htmlFor="agent-prompt">Agent Task</label>
@@ -275,6 +336,10 @@ export default function App() {
             <div className="state-row">
               <span>Persisted runs</span>
               <strong>{sessionLog?.runs.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Patch proposals</span>
+              <strong>{sessionLog?.patches.length ?? 0}</strong>
             </div>
             <button
               className="secondary-action"
@@ -323,6 +388,7 @@ export default function App() {
               <li className={sessionLog?.runs.some((run) => run.steps.length > 0) ? 'done' : ''}>
                 持久化 Session Step Log
               </li>
+              <li className={patchProposal ? 'done' : ''}>生成 Diff Preview</li>
             </ul>
           </div>
         </aside>
@@ -357,12 +423,32 @@ export default function App() {
                 </div>
               )),
             )}
+            {sessionLog?.patches.slice(-5).map((patch) => (
+              <div className="log-line muted" key={patch.id}>
+                patch {patch.id.slice(0, 8)} {patch.status} {patch.path} +{patch.additions} -
+                {patch.deletions}
+              </div>
+            ))}
           </div>
         </section>
       </main>
 
-      <div className="diff-modal-placeholder" aria-label="Diff Preview placeholder">
-        Diff Preview + Approval 占位，Phase 6/7 接入。
+      <div className="diff-preview" aria-label="Diff Preview">
+        <div className="diff-preview-header">
+          <strong>Diff Preview</strong>
+          <span>
+            {patchProposal
+              ? `${patchProposal.path} +${patchProposal.additions} -${patchProposal.deletions}`
+              : '等待 Patch Proposal'}
+          </span>
+        </div>
+        {patchProposal ? (
+          <pre>
+            {patchProposal.unifiedDiff}
+          </pre>
+        ) : (
+          <div className="diff-empty">编辑 Patch Draft 后生成 proposed diff。</div>
+        )}
       </div>
     </div>
   );

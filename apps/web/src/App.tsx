@@ -6,6 +6,7 @@ import type {
   AgentShellEvent,
   ApprovalRequest,
   HealthResponse,
+  ModelProviderInfo,
   PatchProposal,
   SearchTextMatch,
   SelfRepairAttempt,
@@ -20,6 +21,7 @@ import { api, connectSessionEvents } from './api';
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [modelProvider, setModelProvider] = useState<ModelProviderInfo | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [tree, setTree] = useState<WorkspaceFileNode | null>(null);
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
@@ -48,9 +50,16 @@ export default function App() {
   const stopAgentStreamRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    void Promise.all([api.health(), api.workspace(), api.workspaceTree(), api.tools()])
-      .then(([healthResult, workspaceResult, treeResult, toolResult]) => {
+    void Promise.all([
+      api.health(),
+      api.modelProviderStatus(),
+      api.workspace(),
+      api.workspaceTree(),
+      api.tools(),
+    ])
+      .then(([healthResult, providerResult, workspaceResult, treeResult, toolResult]) => {
         setHealth(healthResult);
+        setModelProvider(providerResult.provider);
         setWorkspace(workspaceResult);
         setTree(treeResult);
         setTools(toolResult.tools);
@@ -90,7 +99,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 9 Self-Repair Loop');
+    const result = await api.createSession('Phase 10 Model Provider Integration');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -126,7 +135,8 @@ export default function App() {
 
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
-    const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+    const activeSession =
+      session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -239,7 +249,8 @@ export default function App() {
     setError(null);
     setShellRunning(true);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+      const activeSession =
+        session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -261,7 +272,8 @@ export default function App() {
     setAgentRunning(true);
     setCurrentRunId(null);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+      const activeSession =
+        session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -309,7 +321,8 @@ export default function App() {
     setError(null);
     setRepairRunning(true);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+      const activeSession =
+        session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -359,7 +372,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 9</p>
+          <p className="eyebrow">Phase 10</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -436,8 +449,26 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>Self-Repair Loop 会先运行安全验证命令，再把失败修复转换成 Patch Proposal。</p>
-            <p>文件写入仍然必须经过人工审批和已批准 Patch Apply。</p>
+            <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
+            <p>模型只能提出结构化工具调用，文件写入和命令执行仍受 guardrails 约束。</p>
+          </div>
+          <div className="provider-box">
+            <div className="todo-title">Model Provider</div>
+            <div className="state-row">
+              <span>Provider</span>
+              <strong>{modelProvider?.provider ?? 'loading'}</strong>
+            </div>
+            <div className="state-row">
+              <span>Model</span>
+              <strong>{modelProvider?.model ?? 'unknown'}</strong>
+            </div>
+            <div className="state-row">
+              <span>Status</span>
+              <strong>{modelProvider?.status ?? 'unknown'}</strong>
+            </div>
+            <div className="repair-message">
+              {modelProvider?.message ?? '正在读取 Server 端 provider 配置。'}
+            </div>
           </div>
           <div className="repair-box">
             <div className="todo-title">Self-Repair Loop</div>
@@ -634,6 +665,10 @@ export default function App() {
               <span>Repairs</span>
               <strong>{sessionLog?.repairs.length ?? 0}</strong>
             </div>
+            <div className="state-row">
+              <span>Model calls</span>
+              <strong>{sessionLog?.modelCalls.length ?? 0}</strong>
+            </div>
             <button
               className="secondary-action"
               type="button"
@@ -688,6 +723,7 @@ export default function App() {
               </li>
               <li className={shellResult ? 'done' : ''}>安全 Shell Runner</li>
               <li className={repairAttempt ? 'done' : ''}>测试失败后的自修复循环</li>
+              <li className={modelProvider ? 'done' : ''}>Model Provider Integration</li>
             </ul>
           </div>
         </aside>
@@ -695,7 +731,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 9 和 Phase 15 扩展</small>
+            <small>Phase 10 和 Phase 16 扩展</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -741,6 +777,12 @@ export default function App() {
             {sessionLog?.repairs.slice(-5).map((repair) => (
               <div className="log-line muted" key={repair.id}>
                 repair {repair.id.slice(0, 8)} {repair.status} {repair.message}
+              </div>
+            ))}
+            {sessionLog?.modelCalls.slice(-5).map((call) => (
+              <div className="log-line muted" key={call.id}>
+                model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
+                {call.latencyMs}ms
               </div>
             ))}
           </div>
@@ -834,6 +876,8 @@ function formatAgentEvent(event: AgentRunEvent): string {
       return `agent.status ${event.message}`;
     case 'agent.iteration':
       return `agent.iteration ${event.iteration}/${event.maxIterations}`;
+    case 'agent.model_call':
+      return `model_call ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`;
     case 'agent.message':
       return `assistant ${event.content}`;
     case 'agent.tool_call':

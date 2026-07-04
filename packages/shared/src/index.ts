@@ -21,7 +21,8 @@ export interface HealthResponse {
     | 'phase-06-patch-engine'
     | 'phase-07-permission-approval-guardrails'
     | 'phase-08-shell-runner'
-    | 'phase-09-self-repair-loop';
+    | 'phase-09-self-repair-loop'
+    | 'phase-10-model-provider-integration';
   timestamp: string;
 }
 
@@ -97,6 +98,7 @@ export interface SessionLogResponse {
   approvals: ApprovalRequest[];
   commands: ShellCommandResult[];
   repairs: SelfRepairAttempt[];
+  modelCalls: ModelCallRecord[];
 }
 
 export interface WorkspaceFileNode {
@@ -397,6 +399,48 @@ export interface ModelResponse {
   content?: string;
   toolCalls?: ToolCallRequest[];
   final?: boolean;
+  usage?: ModelUsage;
+}
+
+export type ModelProviderKind = 'mock' | 'openai_compatible';
+
+export type ModelProviderStatus = 'configured' | 'missing_api_key' | 'error';
+
+export interface ModelProviderInfo {
+  provider: ModelProviderKind;
+  model: string;
+  configured: boolean;
+  status: ModelProviderStatus;
+  message: string;
+  baseUrl?: string;
+  timeoutMs: number;
+}
+
+export interface ModelProviderStatusResponse {
+  provider: ModelProviderInfo;
+}
+
+export interface ModelUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+export type ModelCallStatus = 'completed' | 'failed' | 'timed_out';
+
+export interface ModelCallRecord {
+  id: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
+  provider: ModelProviderKind;
+  model: string;
+  status: ModelCallStatus;
+  latencyMs: number;
+  usage?: ModelUsage;
+  requestSummary: string;
+  responseSummary?: string;
+  error?: string;
+  createdAt: string;
 }
 
 export interface AgentRunRequest {
@@ -420,6 +464,10 @@ export type AgentRunEvent =
       type: 'agent.iteration';
       iteration: number;
       maxIterations: number;
+    }
+  | {
+      type: 'agent.model_call';
+      call: ModelCallRecord;
     }
   | {
       type: 'agent.message';

@@ -56,7 +56,7 @@ export async function registerAgentRoutes(
         session: runningSession,
         run: deps.sessionStore.getRun(run.id) ?? run,
       };
-      await recordEvent(deps.sessionStore, run.id, createdEvent);
+      await recordEvent(deps.sessionStore, run.id, session.id, createdEvent);
       res.write(sseFrame(createdEvent));
 
       for await (const event of runAgentLoop(
@@ -73,7 +73,7 @@ export async function registerAgentRoutes(
           stepDelayMs: 150,
         },
       )) {
-        await recordEvent(deps.sessionStore, run.id, event);
+        await recordEvent(deps.sessionStore, run.id, session.id, event);
         res.write(sseFrame(event));
         if (event.type === 'agent.done') {
           const status =
@@ -95,8 +95,8 @@ export async function registerAgentRoutes(
         type: 'agent.done',
         finishReason: 'error',
       };
-      await recordEvent(deps.sessionStore, run.id, errorEvent);
-      await recordEvent(deps.sessionStore, run.id, doneEvent);
+      await recordEvent(deps.sessionStore, run.id, session.id, errorEvent);
+      await recordEvent(deps.sessionStore, run.id, session.id, doneEvent);
       await deps.sessionStore.updateRunStatus(run.id, 'failed');
       await deps.sessionStore.updateSessionStatus(session.id, 'failed');
       res.write(sseFrame(errorEvent));
@@ -127,15 +127,36 @@ export async function registerAgentRoutes(
 async function recordEvent(
   sessionStore: SessionStore,
   runId: AgentRunId,
+  sessionId: string,
   event: AgentRunEvent,
 ): Promise<void> {
-  await sessionStore.appendRunEvent(runId, event);
-  await sessionStore.appendStep(runId, classifyStep(event), titleForEvent(event), event);
+  const storedEvent =
+    event.type === 'agent.model_call'
+      ? {
+          ...event,
+          call: {
+            ...event.call,
+            sessionId,
+            runId,
+          },
+        }
+      : event;
+  if (storedEvent.type === 'agent.model_call') {
+    await sessionStore.saveModelCall(storedEvent.call);
+  }
+  await sessionStore.appendRunEvent(runId, storedEvent);
+  await sessionStore.appendStep(
+    runId,
+    classifyStep(storedEvent),
+    titleForEvent(storedEvent),
+    storedEvent,
+  );
 }
 
 function classifyStep(event: AgentRunEvent): AgentRunStepType {
   switch (event.type) {
     case 'agent.iteration':
+    case 'agent.model_call':
       return 'model_call';
     case 'agent.tool_call':
       return 'tool_call';
@@ -160,6 +181,8 @@ function titleForEvent(event: AgentRunEvent): string {
       return event.message;
     case 'agent.iteration':
       return `Model iteration ${event.iteration}/${event.maxIterations}`;
+    case 'agent.model_call':
+      return `Model call ${event.call.provider}/${event.call.model} ${event.call.status}`;
     case 'agent.message':
       return 'Assistant message';
     case 'agent.tool_call':

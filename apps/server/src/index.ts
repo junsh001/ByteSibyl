@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import { MockModelProvider } from '@wac/model-provider';
+import { createModelProvider } from '@wac/model-provider';
 import { ShellRunner } from '@wac/shell-runner';
 import { SessionStore } from '@wac/telemetry';
 import { WorkspaceService } from '@wac/workspace';
@@ -13,6 +13,7 @@ import {
   type CreateAgentSessionRequest,
   type CreateAgentSessionResponse,
   type HealthResponse,
+  type ModelProviderStatusResponse,
   type SessionId,
 } from '@wac/shared';
 import { config } from './config.js';
@@ -29,7 +30,13 @@ const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
 const toolRegistry = createWorkspaceToolRegistry();
 const toolRunner = new ToolRunner(toolRegistry, { workspace, trace: [] });
-const model = new MockModelProvider();
+const model = createModelProvider({
+  provider: config.modelProvider,
+  apiKey: config.modelApiKey,
+  baseUrl: config.modelBaseUrl,
+  model: config.modelName,
+  timeoutMs: config.modelTimeoutMs,
+});
 
 const app = Fastify({ logger: { level: 'info' }, bodyLimit: 10 * 1024 * 1024 });
 await app.register(cors, { origin: true });
@@ -43,8 +50,12 @@ await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-09-self-repair-loop',
+  phase: 'phase-10-model-provider-integration',
   timestamp: new Date().toISOString(),
+}));
+
+app.get('/api/model-provider/status', async (): Promise<ModelProviderStatusResponse> => ({
+  provider: model.info,
 }));
 
 app.post('/api/sessions', async (req): Promise<CreateAgentSessionResponse> => {

@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import type { ModelProvider } from '@wac/model-provider';
 import type {
   AgentRunEvent,
   AgentRunRequest,
+  ModelCallRecord,
   ModelMessage,
   ToolCallRequest,
   ToolDefinition,
@@ -58,10 +60,50 @@ export async function* runAgentLoop(
       maxIterations,
     };
 
-    const response = await options.model.complete({
-      messages,
-      tools: options.tools,
-    });
+    const requestSummary = summarizeModelRequest(messages, options.tools);
+    const modelStartedAt = Date.now();
+    let response;
+    try {
+      response = await options.model.complete({
+        messages,
+        tools: options.tools,
+      });
+    } catch (err) {
+      const latencyMs = Date.now() - modelStartedAt;
+      const message = err instanceof Error ? err.message : String(err);
+      yield {
+        type: 'agent.model_call',
+        call: createModelCallRecord({
+          provider: options.model,
+          status: message.includes('超时') ? 'timed_out' : 'failed',
+          latencyMs,
+          requestSummary,
+          error: message,
+        }),
+      };
+      yield {
+        type: 'agent.error',
+        message,
+      };
+      yield {
+        type: 'agent.done',
+        finishReason: 'error',
+      };
+      return;
+    }
+
+    const latencyMs = Date.now() - modelStartedAt;
+    yield {
+      type: 'agent.model_call',
+      call: createModelCallRecord({
+        provider: options.model,
+        status: 'completed',
+        latencyMs,
+        requestSummary,
+        responseSummary: summarizeModelResponse(response.content, response.toolCalls?.length ?? 0),
+        usage: response.usage,
+      }),
+    };
     if (options.signal?.aborted) {
       yield cancelledEvent();
       return;
@@ -133,6 +175,40 @@ function cancelledEvent(): AgentRunEvent {
     type: 'agent.done',
     finishReason: 'cancelled',
   };
+}
+
+function createModelCallRecord(input: {
+  provider: ModelProvider;
+  status: ModelCallRecord['status'];
+  latencyMs: number;
+  requestSummary: string;
+  responseSummary?: string;
+  usage?: ModelCallRecord['usage'];
+  error?: string;
+}): ModelCallRecord {
+  return {
+    id: randomUUID(),
+    provider: input.provider.info.provider,
+    model: input.provider.info.model,
+    status: input.status,
+    latencyMs: input.latencyMs,
+    requestSummary: input.requestSummary,
+    responseSummary: input.responseSummary,
+    usage: input.usage,
+    error: input.error,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function summarizeModelRequest(messages: ModelMessage[], tools: ToolDefinition[]): string {
+  const last = messages.at(-1);
+  return `${messages.length} messages, ${tools.length} tools, last=${last?.role ?? 'none'}:${(
+    last?.content ?? ''
+  ).slice(0, 80)}`;
+}
+
+function summarizeModelResponse(content: string | undefined, toolCallCount: number): string {
+  return `content=${content ? content.slice(0, 80) : 'none'}, toolCalls=${toolCallCount}`;
 }
 
 function wait(ms: number, signal?: AbortSignal): Promise<void> {

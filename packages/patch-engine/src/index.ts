@@ -35,6 +35,7 @@ export function createPatchProposal(input: CreatePatchProposalInput): PatchPropo
     newLineCount: newLines.length,
     hunks,
     unifiedDiff: formatUnifiedDiff(input.path, hunks),
+    updatedContent: input.updatedContent,
     createdAt: now,
     updatedAt: now,
   };

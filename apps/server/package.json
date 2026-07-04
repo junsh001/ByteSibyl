@@ -18,6 +18,7 @@
     "@wac/db": "*",
     "@wac/model-provider": "*",
     "@wac/patch-engine": "*",
+    "@wac/permission": "*",
     "@wac/shared": "*",
     "@wac/telemetry": "*",
     "@wac/tool-system": "*",

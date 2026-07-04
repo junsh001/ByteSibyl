@@ -37,7 +37,7 @@ await registerPatchRoutes(app, { workspace, sessionStore });
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-06-patch-engine',
+  phase: 'phase-07-permission-approval-guardrails',
   timestamp: new Date().toISOString(),
 }));
 

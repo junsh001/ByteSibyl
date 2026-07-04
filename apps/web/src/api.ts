@@ -3,12 +3,15 @@ import type {
   AgentRunRequest,
   AgentRunId,
   AgentShellEvent,
+  ApplyPatchResponse,
+  DecidePatchApprovalResponse,
   CreatePatchPreviewRequest,
   CreatePatchPreviewResponse,
   CreateAgentSessionResponse,
   HealthResponse,
   PatchProposal,
   ReadWorkspaceFileResponse,
+  RequestPatchApprovalResponse,
   SearchTextResponse,
   SessionLogResponse,
   ToolCallRequest,
@@ -61,6 +64,20 @@ export const api = {
     fetch(`/api/patches/${id}/discard`, { method: 'POST' }).then(
       json<{ proposal: PatchProposal }>,
     ),
+  requestPatchApproval: (id: string) =>
+    fetch(`/api/patches/${id}/request-approval`, { method: 'POST' }).then(
+      json<RequestPatchApprovalResponse>,
+    ),
+  approvePatch: (approvalId: string) =>
+    fetch(`/api/approvals/${approvalId}/approve`, { method: 'POST' }).then(
+      json<DecidePatchApprovalResponse>,
+    ),
+  rejectPatch: (approvalId: string) =>
+    fetch(`/api/approvals/${approvalId}/reject`, { method: 'POST' }).then(
+      json<DecidePatchApprovalResponse>,
+    ),
+  applyPatch: (id: string) =>
+    fetch(`/api/patches/${id}/apply`, { method: 'POST' }).then(json<ApplyPatchResponse>),
   createSession: (title?: string) =>
     fetch('/api/sessions', {
       method: 'POST',

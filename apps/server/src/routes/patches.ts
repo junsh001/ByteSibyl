@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { createPatchProposal } from '@wac/patch-engine';
+import { evaluatePatchApply } from '@wac/permission';
 import type {
+  ApplyPatchResponse,
+  ApprovalRequestId,
   CreatePatchPreviewRequest,
   CreatePatchPreviewResponse,
+  DecidePatchApprovalResponse,
   PatchProposal,
+  RequestPatchApprovalResponse,
 } from '@wac/shared';
 import type { SessionStore } from '@wac/telemetry';
 import type { WorkspaceService } from '@wac/workspace';
@@ -49,6 +54,44 @@ export async function registerPatchRoutes(
     return { proposal };
   });
 
+  app.post(
+    '/api/patches/:id/request-approval',
+    async (req, reply): Promise<RequestPatchApprovalResponse> => {
+      const { id } = req.params as { id: string };
+      const proposal = deps.sessionStore.getPatch(id);
+      if (!proposal) {
+        return reply.code(404).send({ error: 'patch not found' }) as never;
+      }
+      if (!proposal.sessionId) {
+        return reply.code(409).send({ error: 'patch is not bound to a session' }) as never;
+      }
+
+      const decision = evaluatePatchApply(proposal);
+      if (decision.effect === 'deny') {
+        const blocked = await deps.sessionStore.updatePatchStatus(id, 'blocked');
+        return { proposal: blocked, decision };
+      }
+
+      const existing = deps.sessionStore.findPendingApprovalForSubject(id);
+      if (existing) {
+        return { proposal, approval: existing, decision };
+      }
+
+      const approval = await deps.sessionStore.createApprovalRequest({
+        sessionId: proposal.sessionId,
+        action: 'apply_patch',
+        subjectId: proposal.id,
+        permission: 'write_patch',
+        status: 'pending',
+        reason: decision.reason,
+        decision,
+      });
+      const waiting = await deps.sessionStore.updatePatchStatus(id, 'waiting_approval');
+      await deps.sessionStore.updateSessionStatus(proposal.sessionId, 'waiting_approval');
+      return { proposal: waiting, approval, decision };
+    },
+  );
+
   app.get('/api/patches/:id', async (req, reply): Promise<{ proposal: PatchProposal }> => {
     const { id } = req.params as { id: string };
     const proposal = deps.sessionStore.getPatch(id);
@@ -65,6 +108,78 @@ export async function registerPatchRoutes(
     }
     const proposal = await deps.sessionStore.updatePatchStatus(id, 'discarded');
     return { proposal };
+  });
+
+  app.post(
+    '/api/approvals/:id/approve',
+    async (req, reply): Promise<DecidePatchApprovalResponse> => {
+      const { id } = req.params as { id: ApprovalRequestId };
+      const approval = deps.sessionStore.getApproval(id);
+      if (!approval) {
+        return reply.code(404).send({ error: 'approval not found' }) as never;
+      }
+      const proposal = deps.sessionStore.getPatch(approval.subjectId);
+      if (!proposal) {
+        return reply.code(404).send({ error: 'patch not found' }) as never;
+      }
+      const decision = evaluatePatchApply(proposal);
+      if (decision.effect !== 'approval_required') {
+        return reply.code(409).send({ error: decision.reason, decision }) as never;
+      }
+      const updatedApproval = await deps.sessionStore.updateApprovalStatus(id, 'approved');
+      const updatedProposal = await deps.sessionStore.updatePatchStatus(proposal.id, 'approved');
+      return { proposal: updatedProposal, approval: updatedApproval };
+    },
+  );
+
+  app.post(
+    '/api/approvals/:id/reject',
+    async (req, reply): Promise<DecidePatchApprovalResponse> => {
+      const { id } = req.params as { id: ApprovalRequestId };
+      const approval = deps.sessionStore.getApproval(id);
+      if (!approval) {
+        return reply.code(404).send({ error: 'approval not found' }) as never;
+      }
+      const proposal = deps.sessionStore.getPatch(approval.subjectId);
+      if (!proposal) {
+        return reply.code(404).send({ error: 'patch not found' }) as never;
+      }
+      const updatedApproval = await deps.sessionStore.updateApprovalStatus(id, 'rejected');
+      const updatedProposal = await deps.sessionStore.updatePatchStatus(proposal.id, 'rejected');
+      if (proposal.sessionId) {
+        await deps.sessionStore.updateSessionStatus(proposal.sessionId, 'completed');
+      }
+      return { proposal: updatedProposal, approval: updatedApproval };
+    },
+  );
+
+  app.post('/api/patches/:id/apply', async (req, reply): Promise<ApplyPatchResponse> => {
+    const { id } = req.params as { id: string };
+    const proposal = deps.sessionStore.getPatch(id);
+    if (!proposal) {
+      return reply.code(404).send({ error: 'patch not found' }) as never;
+    }
+    const approval = deps.sessionStore.findApprovedApprovalForSubject(proposal.id);
+    if (!approval) {
+      return reply.code(409).send({ error: 'patch approval is required before apply' }) as never;
+    }
+    if (proposal.status !== 'approved') {
+      return reply.code(409).send({ error: `patch is not approved: ${proposal.status}` }) as never;
+    }
+    if (proposal.updatedContent === undefined) {
+      return reply.code(409).send({ error: 'patch does not include updatedContent' }) as never;
+    }
+    const decision = evaluatePatchApply(proposal);
+    if (decision.effect !== 'approval_required') {
+      return reply.code(409).send({ error: decision.reason, decision }) as never;
+    }
+
+    await deps.workspace.writeTextFile(proposal.path, proposal.updatedContent);
+    const applied = await deps.sessionStore.updatePatchStatus(proposal.id, 'applied');
+    if (proposal.sessionId) {
+      await deps.sessionStore.updateSessionStatus(proposal.sessionId, 'completed');
+    }
+    return { proposal: applied, content: proposal.updatedContent };
   });
 }
 

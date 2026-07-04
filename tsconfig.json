@@ -8,6 +8,7 @@
     { "path": "./packages/model-provider" },
     { "path": "./packages/agent-core" },
     { "path": "./packages/patch-engine" },
+    { "path": "./packages/permission" },
     { "path": "./packages/telemetry" },
     { "path": "./apps/server" },
     { "path": "./apps/web" }

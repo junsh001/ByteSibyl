@@ -16,6 +16,7 @@ import type {
   PatchProposal,
   PatchProposalId,
   PatchProposalStatus,
+  ShellCommandResult,
   SessionId,
   SessionLogResponse,
 } from '@wac/shared';
@@ -25,6 +26,7 @@ interface SessionStoreSnapshot {
   runs: AgentRunRecord[];
   patches?: PatchProposal[];
   approvals?: ApprovalRequest[];
+  commands?: ShellCommandResult[];
 }
 
 export class SessionStore {
@@ -32,6 +34,7 @@ export class SessionStore {
   private readonly runs = new Map<AgentRunId, AgentRunRecord>();
   private readonly patches = new Map<PatchProposalId, PatchProposal>();
   private readonly approvals = new Map<ApprovalRequestId, ApprovalRequest>();
+  private readonly commands = new Map<string, ShellCommandResult>();
 
   constructor(private readonly filePath: string) {}
 
@@ -43,10 +46,12 @@ export class SessionStore {
       this.runs.clear();
       this.patches.clear();
       this.approvals.clear();
+      this.commands.clear();
       for (const session of snapshot.sessions ?? []) this.sessions.set(session.id, session);
       for (const run of snapshot.runs ?? []) this.runs.set(run.id, run);
       for (const patch of snapshot.patches ?? []) this.patches.set(patch.id, patch);
       for (const approval of snapshot.approvals ?? []) this.approvals.set(approval.id, approval);
+      for (const command of snapshot.commands ?? []) this.commands.set(command.id, command);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -218,6 +223,12 @@ export class SessionStore {
     return updated;
   }
 
+  async saveCommandResult(result: ShellCommandResult): Promise<ShellCommandResult> {
+    this.commands.set(result.id, result);
+    await this.save();
+    return result;
+  }
+
   getSessionLog(sessionId: SessionId): SessionLogResponse {
     const session = this.requireSession(sessionId);
     const runs = [...this.runs.values()]
@@ -229,7 +240,10 @@ export class SessionStore {
     const approvals = [...this.approvals.values()]
       .filter((approval) => approval.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { session, runs, patches, approvals };
+    const commands = [...this.commands.values()]
+      .filter((command) => command.sessionId === sessionId)
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    return { session, runs, patches, approvals, commands };
   }
 
   private requireSession(id: SessionId): AgentSession {
@@ -264,6 +278,7 @@ export class SessionStore {
       approvals: [...this.approvals.values()].sort((a, b) =>
         a.createdAt.localeCompare(b.createdAt),
       ),
+      commands: [...this.commands.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;

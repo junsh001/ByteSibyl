@@ -19,6 +19,7 @@
     "@wac/model-provider": "*",
     "@wac/patch-engine": "*",
     "@wac/permission": "*",
+    "@wac/shell-runner": "*",
     "@wac/shared": "*",
     "@wac/telemetry": "*",
     "@wac/tool-system": "*",

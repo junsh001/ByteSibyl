@@ -3,6 +3,7 @@ import type {
   PatchProposal,
   PermissionActionKind,
   PermissionDecision,
+  ShellCommandSafety,
   ToolPermission,
 } from '@wac/shared';
 
@@ -36,7 +37,12 @@ export function evaluatePermission(
       ? deny(action, permission, 'Patch write failed guardrails.', violations)
       : approvalRequired(action, permission, 'Patch writes require human approval.');
   }
-  return deny(action, permission, 'Command execution is not active before Phase 8.', violations);
+  if (permission === 'execute_safe') {
+    return violations.length > 0
+      ? deny(action, permission, 'Safe command failed guardrails.', violations)
+      : allow(action, permission, 'Safe command execution is allowed.');
+  }
+  return deny(action, permission, 'This command permission class is blocked.', violations);
 }
 
 export function evaluatePatchApply(
@@ -80,6 +86,33 @@ export function evaluatePatchApply(
   }
 
   return evaluatePermission('apply_patch', 'write_patch', violations);
+}
+
+export function permissionForCommandSafety(safety: ShellCommandSafety): ToolPermission {
+  if (safety === 'safe') return 'execute_safe';
+  if (safety === 'risky') return 'execute_risky';
+  return 'forbidden';
+}
+
+export function evaluateCommandExecution(
+  safety: ShellCommandSafety,
+  violations: GuardrailViolation[] = [],
+): PermissionDecision {
+  const permission = permissionForCommandSafety(safety);
+  if (permission === 'execute_safe') {
+    return violations.length > 0
+      ? deny('execute_command', permission, 'Safe command failed guardrails.', violations)
+      : allow('execute_command', permission, 'Safe command execution is allowed.');
+  }
+  if (permission === 'execute_risky') {
+    return deny(
+      'execute_command',
+      permission,
+      'Risky command execution is not approved in Phase 8.',
+      violations,
+    );
+  }
+  return deny('execute_command', permission, 'Forbidden command execution is blocked.', violations);
 }
 
 function allow(

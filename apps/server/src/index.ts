@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { MockModelProvider } from '@wac/model-provider';
+import { ShellRunner } from '@wac/shell-runner';
 import { SessionStore } from '@wac/telemetry';
 import { WorkspaceService } from '@wac/workspace';
 import { ToolRunner, createWorkspaceToolRegistry } from '@wac/tool-system';
@@ -17,12 +18,14 @@ import {
 import { config } from './config.js';
 import { registerAgentRoutes } from './routes/agent.js';
 import { registerPatchRoutes } from './routes/patches.js';
+import { registerShellRoutes } from './routes/shell.js';
 import { registerToolRoutes } from './routes/tools.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 
 const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
 const workspace = new WorkspaceService(config.workspaceRoot);
+const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
 const toolRegistry = createWorkspaceToolRegistry();
 const toolRunner = new ToolRunner(toolRegistry, { workspace, trace: [] });
 const model = new MockModelProvider();
@@ -33,11 +36,12 @@ await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
 await registerAgentRoutes(app, { model, toolRegistry, toolRunner, sessionStore });
 await registerPatchRoutes(app, { workspace, sessionStore });
+await registerShellRoutes(app, { shellRunner, sessionStore });
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-07-permission-approval-guardrails',
+  phase: 'phase-08-shell-runner',
   timestamp: new Date().toISOString(),
 }));
 

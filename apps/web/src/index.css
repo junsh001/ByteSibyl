@@ -423,6 +423,45 @@ button {
   background: #fbfaf6;
 }
 
+.shell-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.shell-box input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid #cbd6e4;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #2f2a24;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 13px;
+}
+
+.shell-result {
+  margin-top: 10px;
+}
+
+.shell-result pre {
+  max-height: 150px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #26231f;
+  color: #ede6d8;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .session-state-box {
   margin: 0 12px 12px;
   padding: 12px;

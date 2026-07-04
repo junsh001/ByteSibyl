@@ -13,6 +13,8 @@ import type {
   ReadWorkspaceFileResponse,
   RequestPatchApprovalResponse,
   SearchTextResponse,
+  ShellCommandRequest,
+  ShellCommandResponse,
   SessionLogResponse,
   ToolCallRequest,
   ToolListResponse,
@@ -78,6 +80,12 @@ export const api = {
     ),
   applyPatch: (id: string) =>
     fetch(`/api/patches/${id}/apply`, { method: 'POST' }).then(json<ApplyPatchResponse>),
+  runShellCommand: (request: ShellCommandRequest) =>
+    fetch('/api/shell/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<ShellCommandResponse>),
   createSession: (title?: string) =>
     fetch('/api/sessions', {
       method: 'POST',

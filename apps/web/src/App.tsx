@@ -8,6 +8,7 @@ import type {
   HealthResponse,
   PatchProposal,
   SearchTextMatch,
+  ShellCommandResult,
   SessionLogResponse,
   ToolDefinition,
   ToolResult,
@@ -25,6 +26,9 @@ export default function App() {
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
+  const [shellCommand, setShellCommand] = useState('npm run typecheck');
+  const [shellResult, setShellResult] = useState<ShellCommandResult | null>(null);
+  const [shellRunning, setShellRunning] = useState(false);
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
@@ -81,7 +85,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 7 Approval Flow');
+    const result = await api.createSession('Phase 8 Shell Runner');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -117,7 +121,7 @@ export default function App() {
 
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
-    const activeSession = session ?? (await api.createSession('Phase 7 Approval Flow')).session;
+    const activeSession = session ?? (await api.createSession('Phase 8 Shell Runner')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -226,13 +230,33 @@ export default function App() {
     setToolResult(result);
   }
 
+  async function runShellCommand() {
+    setError(null);
+    setShellRunning(true);
+    try {
+      const activeSession = session ?? (await api.createSession('Phase 8 Shell Runner')).session;
+      setSession(activeSession);
+      const result = await api.runShellCommand({
+        sessionId: activeSession.id,
+        command: shellCommand,
+        timeoutMs: 10_000,
+      });
+      setShellResult(result.result);
+      await refreshSessionLog(activeSession);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setShellRunning(false);
+    }
+  }
+
   async function runAgent() {
     setError(null);
     setAgentEvents([]);
     setAgentRunning(true);
     setCurrentRunId(null);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 7 Approval Flow')).session;
+      const activeSession = session ?? (await api.createSession('Phase 8 Shell Runner')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -280,7 +304,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 7</p>
+          <p className="eyebrow">Phase 8</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -357,8 +381,39 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>Patch 写入必须先通过 Guardrails，再进入 Human-in-the-loop approval。</p>
-            <p>批准后才能应用 Patch；命令执行仍留到 Phase 8。</p>
+            <p>Shell Runner 只执行白名单安全命令，并捕获 stdout/stderr。</p>
+            <p>命令不会经过 shell 字符串解释；危险命令会被 guardrails 阻断。</p>
+          </div>
+          <div className="shell-box">
+            <div className="todo-title">Shell Runner</div>
+            <input
+              value={shellCommand}
+              onChange={(event) => setShellCommand(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void runShellCommand();
+              }}
+            />
+            <button
+              className="primary-action compact"
+              type="button"
+              disabled={shellRunning || !shellCommand.trim()}
+              onClick={() => void runShellCommand()}
+            >
+              {shellRunning ? '执行中...' : '运行安全命令'}
+            </button>
+            {shellResult ? (
+              <div className="shell-result">
+                <div className="state-row">
+                  <span>Status</span>
+                  <strong>{shellResult.status}</strong>
+                </div>
+                <div className="state-row">
+                  <span>Safety</span>
+                  <strong>{shellResult.safety}</strong>
+                </div>
+                <pre>{shellResult.stdout || shellResult.stderr || shellResult.decision.reason}</pre>
+              </div>
+            ) : null}
           </div>
           <div className="patch-box">
             <div className="todo-title">Patch Draft</div>
@@ -479,6 +534,10 @@ export default function App() {
               <span>Approvals</span>
               <strong>{sessionLog?.approvals.length ?? 0}</strong>
             </div>
+            <div className="state-row">
+              <span>Commands</span>
+              <strong>{sessionLog?.commands.length ?? 0}</strong>
+            </div>
             <button
               className="secondary-action"
               type="button"
@@ -531,6 +590,7 @@ export default function App() {
               <li className={patchProposal?.status === 'applied' ? 'done' : ''}>
                 应用已批准 Patch
               </li>
+              <li className={shellResult ? 'done' : ''}>安全 Shell Runner</li>
             </ul>
           </div>
         </aside>
@@ -574,6 +634,11 @@ export default function App() {
             {sessionLog?.approvals.slice(-5).map((item) => (
               <div className="log-line muted" key={item.id}>
                 approval {item.id.slice(0, 8)} {item.status} {item.action} {item.subjectId.slice(0, 8)}
+              </div>
+            ))}
+            {sessionLog?.commands.slice(-5).map((command) => (
+              <div className="log-line muted" key={command.id}>
+                command {command.id.slice(0, 8)} {command.status} {command.command}
               </div>
             ))}
           </div>

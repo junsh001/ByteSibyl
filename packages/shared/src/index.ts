@@ -19,7 +19,8 @@ export interface HealthResponse {
     | 'phase-04-agent-loop'
     | 'phase-05-session-state'
     | 'phase-06-patch-engine'
-    | 'phase-07-permission-approval-guardrails';
+    | 'phase-07-permission-approval-guardrails'
+    | 'phase-08-shell-runner';
   timestamp: string;
 }
 
@@ -93,6 +94,7 @@ export interface SessionLogResponse {
   runs: AgentRunRecord[];
   patches: PatchProposal[];
   approvals: ApprovalRequest[];
+  commands: ShellCommandResult[];
 }
 
 export interface WorkspaceFileNode {
@@ -230,6 +232,39 @@ export interface DecidePatchApprovalResponse {
 export interface ApplyPatchResponse {
   proposal: PatchProposal;
   content: string;
+}
+
+export type ShellCommandStatus = 'completed' | 'failed' | 'timed_out' | 'blocked';
+
+export type ShellCommandSafety = 'safe' | 'risky' | 'forbidden';
+
+export interface ShellCommandRequest {
+  sessionId?: SessionId;
+  command: string;
+  timeoutMs?: number;
+}
+
+export interface ShellCommandResult {
+  id: string;
+  sessionId?: SessionId;
+  command: string;
+  argv: string[];
+  cwd: string;
+  safety: ShellCommandSafety;
+  status: ShellCommandStatus;
+  exitCode?: number;
+  signal?: string;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  decision: PermissionDecision;
+}
+
+export interface ShellCommandResponse {
+  result: ShellCommandResult;
 }
 
 export type JsonSchemaType = 'object' | 'string' | 'number' | 'boolean' | 'array';

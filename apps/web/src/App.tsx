@@ -100,6 +100,18 @@ export default function App() {
     return `${session.title} · ${session.status} · ${session.id.slice(0, 8)}`;
   }, [session]);
 
+  const latestContextSummary = useMemo(() => {
+    for (let index = agentEvents.length - 1; index >= 0; index -= 1) {
+      const event = agentEvents[index];
+      if (event?.type === 'agent.context_summary') return event.summary;
+    }
+    const persisted = sessionLog?.runs
+      .flatMap((run) => run.events)
+      .filter((event) => event.type === 'agent.context_summary')
+      .at(-1);
+    return persisted?.type === 'agent.context_summary' ? persisted.summary : null;
+  }, [agentEvents, sessionLog]);
+
   const patchFlowHint = useMemo(() => {
     if (!selectedFile) return '先在左侧选择文件。';
     if (!patchProposal) return '可以直接生成 Diff Preview，或请求审批时自动生成。';
@@ -114,7 +126,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 11 LSP Diagnostics');
+    const result = await api.createSession('Phase 12 Context Engine');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -163,7 +175,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
+      session ?? (await api.createSession('Phase 12 Context Engine')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -278,7 +290,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
+        session ?? (await api.createSession('Phase 12 Context Engine')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -301,7 +313,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
+        session ?? (await api.createSession('Phase 12 Context Engine')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -350,7 +362,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
+        session ?? (await api.createSession('Phase 12 Context Engine')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -402,7 +414,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 11</p>
+          <p className="eyebrow">Phase 12</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -480,7 +492,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Agent 可以把 TypeScript diagnostics 当作结构化 observation。</p>
+            <p>Context Engine 会在每次模型调用前生成受预算控制的上下文摘要。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -542,6 +554,30 @@ export default function App() {
                   </button>
                 ))
               )}
+            </div>
+          </div>
+          <div className="context-box">
+            <div className="todo-title">Context Engine</div>
+            <div className="state-row">
+              <span>Budget</span>
+              <strong>
+                {latestContextSummary
+                  ? `${latestContextSummary.budget.usedChars}/${latestContextSummary.budget.maxChars}`
+                  : 'waiting'}
+              </strong>
+            </div>
+            <div className="state-row">
+              <span>Relevant files</span>
+              <strong>{latestContextSummary?.relevantFiles.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Compressed</span>
+              <strong>{latestContextSummary?.compressedObservationCount ?? 0}</strong>
+            </div>
+            <div className="repair-message">
+              {latestContextSummary
+                ? latestContextSummary.taskSummary
+                : '运行 Agent Loop 后会显示本轮模型调用前的 context summary。'}
             </div>
           </div>
           <div className="repair-box">
@@ -743,6 +779,16 @@ export default function App() {
               <span>Model calls</span>
               <strong>{sessionLog?.modelCalls.length ?? 0}</strong>
             </div>
+            <div className="state-row">
+              <span>Context summaries</span>
+              <strong>
+                {sessionLog?.runs.reduce(
+                  (total, run) =>
+                    total + run.events.filter((event) => event.type === 'agent.context_summary').length,
+                  0,
+                ) ?? 0}
+              </strong>
+            </div>
             <button
               className="secondary-action"
               type="button"
@@ -799,6 +845,7 @@ export default function App() {
               <li className={repairAttempt ? 'done' : ''}>测试失败后的自修复循环</li>
               <li className={modelProvider ? 'done' : ''}>Model Provider Integration</li>
               <li className={diagnostics ? 'done' : ''}>LSP Diagnostics</li>
+              <li className={latestContextSummary ? 'done' : ''}>Context Engine</li>
             </ul>
           </div>
         </aside>
@@ -806,7 +853,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 11 和 Phase 16 扩展</small>
+            <small>Phase 12 和 Phase 16 扩展</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -951,6 +998,8 @@ function formatAgentEvent(event: AgentRunEvent): string {
       return `agent.status ${event.message}`;
     case 'agent.iteration':
       return `agent.iteration ${event.iteration}/${event.maxIterations}`;
+    case 'agent.context_summary':
+      return `context_summary budget=${event.summary.budget.usedChars}/${event.summary.budget.maxChars} files=${event.summary.relevantFiles.length} diagnostics=${event.summary.diagnostics.length} truncated=${event.summary.budget.truncated}`;
     case 'agent.model_call':
       return `model_call ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`;
     case 'agent.message':

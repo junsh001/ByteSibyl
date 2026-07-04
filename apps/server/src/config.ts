@@ -41,6 +41,7 @@ export const config = {
     'https://api.deepseek.com',
   modelName: process.env.MODEL_NAME ?? process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
   modelTimeoutMs: Number(process.env.MODEL_TIMEOUT_MS ?? 30_000),
+  contextBudgetChars: Number(process.env.CONTEXT_BUDGET_CHARS ?? 6_000),
 };
 
 export type AppConfig = typeof config;

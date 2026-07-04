@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { runAgentLoop } from '@wac/agent-core';
+import type { ContextEngine } from '@wac/context-engine';
 import type { ModelProvider } from '@wac/model-provider';
 import {
   sseFrame,
@@ -17,6 +18,7 @@ export async function registerAgentRoutes(
     model: ModelProvider;
     toolRegistry: ToolRegistry;
     toolRunner: ToolRunner;
+    contextEngine: ContextEngine;
     sessionStore: SessionStore;
   },
 ): Promise<void> {
@@ -68,6 +70,7 @@ export async function registerAgentRoutes(
           model: deps.model,
           tools: deps.toolRegistry.list(),
           toolRunner: deps.toolRunner,
+          contextEngine: deps.contextEngine,
           maxIterations: 6,
           signal: controller.signal,
           stepDelayMs: 150,
@@ -156,6 +159,9 @@ async function recordEvent(
 function classifyStep(event: AgentRunEvent): AgentRunStepType {
   switch (event.type) {
     case 'agent.iteration':
+      return 'status';
+    case 'agent.context_summary':
+      return 'context_summary';
     case 'agent.model_call':
       return 'model_call';
     case 'agent.tool_call':
@@ -181,6 +187,8 @@ function titleForEvent(event: AgentRunEvent): string {
       return event.message;
     case 'agent.iteration':
       return `Model iteration ${event.iteration}/${event.maxIterations}`;
+    case 'agent.context_summary':
+      return `Context summary ${event.summary.budget.usedChars}/${event.summary.budget.maxChars} chars`;
     case 'agent.model_call':
       return `Model call ${event.call.provider}/${event.call.model} ${event.call.status}`;
     case 'agent.message':

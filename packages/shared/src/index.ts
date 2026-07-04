@@ -23,7 +23,8 @@ export interface HealthResponse {
     | 'phase-08-shell-runner'
     | 'phase-09-self-repair-loop'
     | 'phase-10-model-provider-integration'
-    | 'phase-11-lsp-diagnostics';
+    | 'phase-11-lsp-diagnostics'
+    | 'phase-12-context-engine';
   timestamp: string;
 }
 
@@ -64,6 +65,7 @@ export type AgentRunStatus =
   | 'cancelled';
 
 export type AgentRunStepType =
+  | 'context_summary'
   | 'model_call'
   | 'tool_call'
   | 'tool_result'
@@ -148,6 +150,29 @@ export interface DiagnosticsResponse {
   diagnostics: WorkspaceDiagnostic[];
   generatedAt: string;
   workspaceRoot: string;
+}
+
+export interface ContextRelevantFile {
+  path: string;
+  reason: string;
+  score: number;
+}
+
+export interface ContextBudgetStatus {
+  maxChars: number;
+  usedChars: number;
+  truncated: boolean;
+}
+
+export interface ContextSummary {
+  taskSummary: string;
+  repoMap: string[];
+  relevantFiles: ContextRelevantFile[];
+  diagnostics: WorkspaceDiagnostic[];
+  observationSummary: string[];
+  compressedObservationCount: number;
+  budget: ContextBudgetStatus;
+  generatedAt: string;
 }
 
 export type PatchProposalId = string;
@@ -485,6 +510,10 @@ export type AgentRunEvent =
       type: 'agent.iteration';
       iteration: number;
       maxIterations: number;
+    }
+  | {
+      type: 'agent.context_summary';
+      summary: ContextSummary;
     }
   | {
       type: 'agent.model_call';

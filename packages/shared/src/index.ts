@@ -16,17 +16,26 @@ export interface HealthResponse {
     | 'phase-01-web-server-shell'
     | 'phase-02-workspace-filesystem'
     | 'phase-03-tool-system'
-    | 'phase-04-agent-loop';
+    | 'phase-04-agent-loop'
+    | 'phase-05-session-state';
   timestamp: string;
 }
 
-export type AgentSessionStatus = 'created' | 'idle';
+export type AgentSessionStatus =
+  | 'created'
+  | 'running'
+  | 'paused'
+  | 'waiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 export interface AgentSession {
   id: SessionId;
   title: string;
   status: AgentSessionStatus;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateAgentSessionRequest {
@@ -35,6 +44,51 @@ export interface CreateAgentSessionRequest {
 
 export interface CreateAgentSessionResponse {
   session: AgentSession;
+}
+
+export type AgentRunId = string;
+
+export type AgentRunStatus =
+  | 'created'
+  | 'running'
+  | 'paused'
+  | 'waiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type AgentRunStepType =
+  | 'model_call'
+  | 'tool_call'
+  | 'tool_result'
+  | 'approval'
+  | 'final'
+  | 'status'
+  | 'error';
+
+export interface AgentRunStep {
+  id: string;
+  runId: AgentRunId;
+  type: AgentRunStepType;
+  title: string;
+  event?: AgentRunEvent;
+  createdAt: string;
+}
+
+export interface AgentRunRecord {
+  id: AgentRunId;
+  sessionId: SessionId;
+  message: string;
+  status: AgentRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  events: AgentRunEvent[];
+  steps: AgentRunStep[];
+}
+
+export interface SessionLogResponse {
+  session: AgentSession;
+  runs: AgentRunRecord[];
 }
 
 export interface WorkspaceFileNode {
@@ -134,14 +188,20 @@ export interface ModelResponse {
 }
 
 export interface AgentRunRequest {
+  sessionId?: SessionId;
   message: string;
   maxIterations?: number;
 }
 
 export type AgentRunEvent =
   | {
+      type: 'agent.run_created';
+      session: AgentSession;
+      run: AgentRunRecord;
+    }
+  | {
       type: 'agent.status';
-      status: 'running' | 'completed' | 'failed';
+      status: AgentRunStatus;
       message: string;
     }
   | {
@@ -168,7 +228,7 @@ export type AgentRunEvent =
     }
   | {
       type: 'agent.done';
-      finishReason: 'final' | 'stop' | 'max_iterations' | 'error';
+      finishReason: 'final' | 'stop' | 'max_iterations' | 'error' | 'cancelled';
     };
 
 export type AgentShellEvent =

@@ -19,6 +19,7 @@ export const config = {
   port: Number(process.env.PORT ?? 8787),
   workspaceRoot: fromRoot(process.env.WAC_WORKSPACE_ROOT ?? './examples/buggy-ts-project'),
   webDist: fromRoot(process.env.WEB_DIST ?? './apps/web/dist'),
+  sessionLogPath: fromRoot(process.env.WAC_SESSION_LOG_PATH ?? './data/session-log.json'),
 };
 
 export type AppConfig = typeof config;

@@ -1,14 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { MockModelProvider } from '@wac/model-provider';
+import { SessionStore } from '@wac/telemetry';
 import { WorkspaceService } from '@wac/workspace';
 import { ToolRunner, createWorkspaceToolRegistry } from '@wac/tool-system';
 import {
   sseFrame,
-  type AgentSession,
   type AgentShellEvent,
   type CreateAgentSessionRequest,
   type CreateAgentSessionResponse,
@@ -20,7 +19,8 @@ import { registerAgentRoutes } from './routes/agent.js';
 import { registerToolRoutes } from './routes/tools.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 
-const sessions = new Map<SessionId, AgentSession>();
+const sessionStore = new SessionStore(config.sessionLogPath);
+await sessionStore.load();
 const workspace = new WorkspaceService(config.workspaceRoot);
 const toolRegistry = createWorkspaceToolRegistry();
 const toolRunner = new ToolRunner(toolRegistry, { workspace, trace: [] });
@@ -30,40 +30,42 @@ const app = Fastify({ logger: { level: 'info' }, bodyLimit: 10 * 1024 * 1024 });
 await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
-await registerAgentRoutes(app, { model, toolRegistry, toolRunner });
+await registerAgentRoutes(app, { model, toolRegistry, toolRunner, sessionStore });
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-04-agent-loop',
+  phase: 'phase-05-session-state',
   timestamp: new Date().toISOString(),
 }));
 
 app.post('/api/sessions', async (req): Promise<CreateAgentSessionResponse> => {
   const body = (req.body ?? {}) as CreateAgentSessionRequest;
-  const now = new Date().toISOString();
-  const session: AgentSession = {
-    id: randomUUID(),
-    title: body.title?.trim() || 'Untitled agent session',
-    status: 'created',
-    createdAt: now,
-  };
-  sessions.set(session.id, session);
+  const session = await sessionStore.createSession(body.title);
   return { session };
 });
 
 app.get('/api/sessions/:id', async (req, reply) => {
   const { id } = req.params as { id: SessionId };
-  const session = sessions.get(id);
+  const session = sessionStore.getSession(id);
   if (!session) {
     return reply.code(404).send({ error: 'session not found' });
   }
   return { session };
 });
 
+app.get('/api/sessions/:id/log', async (req, reply) => {
+  const { id } = req.params as { id: SessionId };
+  try {
+    return sessionStore.getSessionLog(id);
+  } catch {
+    return reply.code(404).send({ error: 'session not found' });
+  }
+});
+
 app.get('/api/sessions/:id/events', async (req, reply) => {
   const { id } = req.params as { id: SessionId };
-  const session = sessions.get(id);
+  const session = sessionStore.getSession(id);
   if (!session) {
     return reply.code(404).send({ error: 'session not found' });
   }
@@ -79,7 +81,7 @@ app.get('/api/sessions/:id/events', async (req, reply) => {
   const event: AgentShellEvent = {
     type: 'session.connected',
     sessionId: session.id,
-    message: 'Phase 1 event stream connected. Agent loop starts in a later phase.',
+    message: 'Session event stream connected. Agent run events are persisted in the session log.',
     timestamp: new Date().toISOString(),
   };
   res.write(sseFrame(event));

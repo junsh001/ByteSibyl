@@ -18,6 +18,7 @@
     "@wac/db": "*",
     "@wac/model-provider": "*",
     "@wac/shared": "*",
+    "@wac/telemetry": "*",
     "@wac/tool-system": "*",
     "@wac/workspace": "*",
     "dotenv": "^16.4.7",

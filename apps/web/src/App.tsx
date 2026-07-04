@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  AgentRunId,
   AgentRunEvent,
   AgentSession,
   AgentShellEvent,
   HealthResponse,
   SearchTextMatch,
+  SessionLogResponse,
   ToolDefinition,
   ToolResult,
   WorkspaceFileNode,
@@ -24,9 +26,12 @@ export default function App() {
   const [agentPrompt, setAgentPrompt] = useState('查找 formatUser 并读取相关文件');
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
+  const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
   const [session, setSession] = useState<AgentSession | null>(null);
+  const [sessionLog, setSessionLog] = useState<SessionLogResponse | null>(null);
   const [events, setEvents] = useState<AgentShellEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const stopAgentStreamRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     void Promise.all([api.health(), api.workspace(), api.workspaceTree(), api.tools()])
@@ -54,14 +59,22 @@ export default function App() {
 
   const sessionLabel = useMemo(() => {
     if (!session) return '尚未创建 Session';
-    return `${session.title} · ${session.id.slice(0, 8)}`;
+    return `${session.title} · ${session.status} · ${session.id.slice(0, 8)}`;
   }, [session]);
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 2 Workspace');
+    const result = await api.createSession('Phase 5 Session State');
     setSession(result.session);
+    setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
+  }
+
+  async function refreshSessionLog(targetSession = session) {
+    if (!targetSession) return;
+    const result = await api.sessionLog(targetSession.id);
+    setSession(result.session);
+    setSessionLog(result);
   }
 
   async function openFile(path: string) {
@@ -90,19 +103,52 @@ export default function App() {
     setToolResult(result);
   }
 
-  function runAgent() {
+  async function runAgent() {
     setError(null);
     setAgentEvents([]);
     setAgentRunning(true);
+    setCurrentRunId(null);
     try {
-      api.runAgent({ message: agentPrompt, maxIterations: 6 }, (event) => {
-        setAgentEvents((current) => [...current, event]);
-        if (event.type === 'agent.done' || event.type === 'agent.error') {
+      const activeSession = session ?? (await api.createSession('Phase 5 Session State')).session;
+      setSession(activeSession);
+      stopAgentStreamRef.current = api.runAgent(
+        { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
+        (event) => {
+          setAgentEvents((current) => [...current, event]);
+          if (event.type === 'agent.run_created') {
+            setSession(event.session);
+            setCurrentRunId(event.run.id);
+          }
+          if (event.type === 'agent.done' || event.type === 'agent.error') {
+            setAgentRunning(false);
+            setCurrentRunId(null);
+            stopAgentStreamRef.current = null;
+            void refreshSessionLog(activeSession);
+          }
+        },
+        (message) => {
           setAgentRunning(false);
-        }
-      });
+          setError(message);
+          setCurrentRunId(null);
+          stopAgentStreamRef.current = null;
+        },
+      );
     } catch (err) {
       setAgentRunning(false);
+      setCurrentRunId(null);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function cancelAgent() {
+    if (!currentRunId) return;
+    setError(null);
+    try {
+      await api.cancelRun(currentRunId);
+    } catch (err) {
+      setAgentRunning(false);
+      stopAgentStreamRef.current?.();
+      stopAgentStreamRef.current = null;
       setError(err instanceof Error ? err.message : String(err));
     }
   }
@@ -111,7 +157,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 4</p>
+          <p className="eyebrow">Phase 5</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -188,8 +234,8 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>当前使用 mock model provider 演示最小 Agent Loop。</p>
-            <p>模型会提出工具调用，Tool Runner 执行后把 observation 送回循环。</p>
+            <p>当前 Session 状态由 server 维护，并写入本地 session log。</p>
+            <p>长任务可通过 run controller 取消，事件和 step 会保留。</p>
           </div>
           <div className="agent-run-box">
             <label htmlFor="agent-prompt">Agent Task</label>
@@ -203,9 +249,40 @@ export default function App() {
               className="primary-action compact"
               type="button"
               disabled={agentRunning}
-              onClick={runAgent}
+              onClick={() => void runAgent()}
             >
-              {agentRunning ? '运行中...' : '运行最小 Agent Loop'}
+              {agentRunning ? '运行中...' : '运行 Agent Loop'}
+            </button>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={!agentRunning || !currentRunId}
+              onClick={() => void cancelAgent()}
+            >
+              取消当前 Run
+            </button>
+          </div>
+          <div className="session-state-box">
+            <div className="todo-title">Session State</div>
+            <div className="state-row">
+              <span>Session</span>
+              <strong>{session?.status ?? 'none'}</strong>
+            </div>
+            <div className="state-row">
+              <span>Run</span>
+              <strong>{currentRunId ? currentRunId.slice(0, 8) : 'none'}</strong>
+            </div>
+            <div className="state-row">
+              <span>Persisted runs</span>
+              <strong>{sessionLog?.runs.length ?? 0}</strong>
+            </div>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={!session}
+              onClick={() => void refreshSessionLog()}
+            >
+              刷新 Session Log
             </button>
           </div>
           <div className="tool-box">
@@ -243,6 +320,9 @@ export default function App() {
               <li className={agentEvents.some((event) => event.type === 'agent.done') ? 'done' : ''}>
                 最小 Agent Loop
               </li>
+              <li className={sessionLog?.runs.some((run) => run.steps.length > 0) ? 'done' : ''}>
+                持久化 Session Step Log
+              </li>
             </ul>
           </div>
         </aside>
@@ -270,6 +350,13 @@ export default function App() {
                 {formatAgentEvent(event)}
               </div>
             ))}
+            {sessionLog?.runs.flatMap((run) =>
+              run.steps.slice(-6).map((step) => (
+                <div className="log-line muted" key={step.id}>
+                  persisted {run.id.slice(0, 8)} {step.type} {step.title}
+                </div>
+              )),
+            )}
           </div>
         </section>
       </main>
@@ -341,6 +428,8 @@ function countFiles(node: WorkspaceFileNode): number {
 
 function formatAgentEvent(event: AgentRunEvent): string {
   switch (event.type) {
+    case 'agent.run_created':
+      return `agent.run_created session=${event.session.id.slice(0, 8)} run=${event.run.id.slice(0, 8)}`;
     case 'agent.status':
       return `agent.status ${event.message}`;
     case 'agent.iteration':

@@ -16,6 +16,7 @@ import {
 } from '@wac/shared';
 import { config } from './config.js';
 import { registerAgentRoutes } from './routes/agent.js';
+import { registerPatchRoutes } from './routes/patches.js';
 import { registerToolRoutes } from './routes/tools.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 
@@ -31,11 +32,12 @@ await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
 await registerAgentRoutes(app, { model, toolRegistry, toolRunner, sessionStore });
+await registerPatchRoutes(app, { workspace, sessionStore });
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-05-session-state',
+  phase: 'phase-06-patch-engine',
   timestamp: new Date().toISOString(),
 }));
 

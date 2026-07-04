@@ -132,6 +132,15 @@ button {
   grid-row: 1;
   display: flex;
   flex-direction: column;
+  overflow: auto;
+}
+
+.agent-panel > .panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: 0 0 auto;
+  background: #fffdf8;
 }
 
 .bottom-panel {
@@ -298,7 +307,8 @@ button {
   background: #fffdf8;
 }
 
-.agent-run-box label {
+.agent-run-box label,
+.patch-box label {
   display: block;
   margin-bottom: 6px;
   color: #3d372f;
@@ -306,7 +316,8 @@ button {
   font-weight: 700;
 }
 
-.agent-run-box textarea {
+.agent-run-box textarea,
+.patch-box textarea {
   box-sizing: border-box;
   width: 100%;
   resize: vertical;
@@ -319,6 +330,29 @@ button {
   font: inherit;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.patch-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #dbe4dd;
+  border-radius: 8px;
+  background: #f8fbf7;
+}
+
+.patch-box small {
+  display: block;
+  overflow: hidden;
+  margin-bottom: 8px;
+  color: #6f766b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.patch-box textarea {
+  min-height: 130px;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
 }
 
 .secondary-action {
@@ -472,18 +506,57 @@ button {
   color: #ffb4a8;
 }
 
-.diff-modal-placeholder {
+.diff-preview {
   position: fixed;
   right: 18px;
   bottom: 18px;
-  max-width: min(360px, calc(100vw - 36px));
-  padding: 10px 12px;
-  border: 1px dashed #b9ad9d;
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+  width: min(560px, calc(100vw - 36px));
+  max-height: min(360px, calc(100vh - 120px));
+  border: 1px solid #b9ad9d;
   border-radius: 8px;
   background: #fffdf8;
-  color: #6a6156;
+  color: #2d2924;
   font-size: 12px;
   box-shadow: 0 10px 26px rgba(36, 33, 29, 0.12);
+}
+
+.diff-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid #e8e0d2;
+}
+
+.diff-preview-header strong,
+.diff-preview-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-preview-header span {
+  color: #6a6156;
+}
+
+.diff-preview pre,
+.diff-empty {
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  background: #26231f;
+  color: #ede6d8;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.diff-empty {
+  color: #a9a094;
 }
 
 @media (max-width: 960px) {
@@ -529,5 +602,12 @@ button {
 
   .bottom-panel {
     grid-row: 4;
+  }
+
+  .diff-preview {
+    position: static;
+    width: auto;
+    max-height: 280px;
+    margin: 0 10px 10px;
   }
 }

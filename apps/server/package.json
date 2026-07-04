@@ -17,6 +17,7 @@
     "@wac/agent": "*",
     "@wac/db": "*",
     "@wac/model-provider": "*",
+    "@wac/patch-engine": "*",
     "@wac/shared": "*",
     "@wac/telemetry": "*",
     "@wac/tool-system": "*",

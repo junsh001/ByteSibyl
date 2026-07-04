@@ -8,6 +8,7 @@ import type {
   CreatePatchPreviewRequest,
   CreatePatchPreviewResponse,
   CreateAgentSessionResponse,
+  DiagnosticsResponse,
   HealthResponse,
   ModelProviderStatusResponse,
   PatchProposal,
@@ -39,6 +40,7 @@ export const api = {
     fetch('/api/model-provider/status').then(json<ModelProviderStatusResponse>),
   workspace: () => fetch('/api/workspace').then(json<WorkspaceInfo>),
   workspaceTree: () => fetch('/api/workspace/tree').then(json<WorkspaceFileNode>),
+  diagnostics: () => fetch('/api/diagnostics').then(json<DiagnosticsResponse>),
   readWorkspaceFile: (path: string) =>
     fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`).then(
       json<ReadWorkspaceFileResponse>,

@@ -115,6 +115,17 @@ export class MockModelProvider implements ModelProvider {
       };
     }
 
+    if (lastTool.toolName === 'get_diagnostics') {
+      const output = parseToolOutput(lastTool.content);
+      const count =
+        isRecord(output) && Array.isArray(output.diagnostics) ? output.diagnostics.length : 0;
+      return {
+        content: `已获取 TypeScript diagnostics，共 ${count} 条。Agent 已把编译器反馈作为 observation。`,
+        final: true,
+        usage: estimateUsage(request, `final:diagnostics:${count}`),
+      };
+    }
+
     return {
       content: '收到工具 observation，最小 Agent Loop 已停止。',
       final: true,
@@ -233,6 +244,20 @@ export function createModelProvider(options: CreateModelProviderOptions): ModelP
 
 function firstToolCall(userMessage: string): ToolCallRequest {
   const lower = userMessage.toLowerCase();
+  if (
+    lower.includes('diagnostic') ||
+    lower.includes('typecheck') ||
+    lower.includes('typescript') ||
+    userMessage.includes('诊断') ||
+    userMessage.includes('类型错误') ||
+    userMessage.includes('编译错误')
+  ) {
+    return {
+      name: 'get_diagnostics',
+      input: {},
+    };
+  }
+
   if (lower.includes('tree') || userMessage.includes('文件树') || userMessage.includes('结构')) {
     return {
       name: 'get_workspace_tree',

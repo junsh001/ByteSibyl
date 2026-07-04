@@ -16,6 +16,7 @@
     "@wac/agent-core": "*",
     "@wac/agent": "*",
     "@wac/db": "*",
+    "@wac/lsp-client": "*",
     "@wac/model-provider": "*",
     "@wac/patch-engine": "*",
     "@wac/permission": "*",

@@ -439,6 +439,112 @@ button {
   background: #f8fcf6;
 }
 
+.diagnostics-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #e3d7cf;
+  border-radius: 8px;
+  background: #fffbf7;
+}
+
+.diagnostics-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.diagnostics-header small {
+  color: #7c7168;
+  font-size: 12px;
+}
+
+.diagnostics-header button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d7ccbc;
+  border-radius: 7px;
+  background: #fbfaf6;
+  color: #2d2924;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.diagnostics-header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.diagnostic-list {
+  display: grid;
+  gap: 7px;
+  max-height: 210px;
+  overflow: auto;
+  margin-top: 10px;
+}
+
+.diagnostic-list button {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 4px 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #eadfd6;
+  border-radius: 7px;
+  background: #fffdf8;
+  color: #3d372f;
+  cursor: pointer;
+  text-align: left;
+}
+
+.diagnostic-list button:hover {
+  border-color: #a6563b;
+}
+
+.diagnostic-list strong,
+.diagnostic-list span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-list span:last-child {
+  grid-column: 2;
+  color: #665c52;
+  font-size: 12px;
+}
+
+.diagnostic-severity {
+  align-self: start;
+  padding: 2px 5px;
+  border-radius: 5px;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.diagnostic-severity.error {
+  background: #b3432f;
+}
+
+.diagnostic-severity.warning {
+  background: #a06a22;
+}
+
+.diagnostic-severity.info,
+.diagnostic-severity.hint {
+  background: #436d91;
+}
+
+.diagnostic-empty {
+  padding: 8px;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #7c7168;
+  font-size: 12px;
+}
+
 .repair-box {
   margin: 0 12px 12px;
   padding: 12px;

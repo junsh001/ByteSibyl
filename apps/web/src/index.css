@@ -431,6 +431,14 @@ button {
   background: #f8fbff;
 }
 
+.provider-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #d8e3d6;
+  border-radius: 8px;
+  background: #f8fcf6;
+}
+
 .repair-box {
   margin: 0 12px 12px;
   padding: 12px;

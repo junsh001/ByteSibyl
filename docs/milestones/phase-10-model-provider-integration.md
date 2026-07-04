@@ -9,7 +9,7 @@
 
 - 扩展 `packages/model-provider`，新增真实 provider adapter。
 - 支持 DeepSeek 或 OpenAI 兼容 API 的基础配置。
-- 从环境变量读取 API key、base URL、model name 和 timeout。
+- 从环境变量读取 provider、API key、base URL、model name 和 timeout。
 - 为 model request/response 定义最小 usage、latency、error 记录。
 - Server 可按配置选择 mock provider 或真实 provider。
 - Web 展示当前 provider、模型名和连接状态。
@@ -49,6 +49,7 @@
 6. Shell 命令仍必须走 Shell Runner 和 permission policy。
 7. Model 调用失败、超时和空响应有清晰错误状态。
 8. 文档明确真实模型能力与确定性 guardrails 的关系。
+9. 前端界面变化必须在总结中说明。
 
 ## 验证命令
 

@@ -9,6 +9,7 @@ import type {
   CreatePatchPreviewResponse,
   CreateAgentSessionResponse,
   HealthResponse,
+  ModelProviderStatusResponse,
   PatchProposal,
   ReadWorkspaceFileResponse,
   RequestPatchApprovalResponse,
@@ -34,6 +35,8 @@ async function json<T>(res: Response): Promise<T> {
 
 export const api = {
   health: () => fetch('/api/health').then(json<HealthResponse>),
+  modelProviderStatus: () =>
+    fetch('/api/model-provider/status').then(json<ModelProviderStatusResponse>),
   workspace: () => fetch('/api/workspace').then(json<WorkspaceInfo>),
   workspaceTree: () => fetch('/api/workspace/tree').then(json<WorkspaceFileNode>),
   readWorkspaceFile: (path: string) =>

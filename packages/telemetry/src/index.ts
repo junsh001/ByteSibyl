@@ -13,6 +13,7 @@ import type {
   ApprovalRequest,
   ApprovalRequestId,
   ApprovalStatus,
+  ModelCallRecord,
   PatchProposal,
   PatchProposalId,
   PatchProposalStatus,
@@ -29,6 +30,7 @@ interface SessionStoreSnapshot {
   approvals?: ApprovalRequest[];
   commands?: ShellCommandResult[];
   repairs?: SelfRepairAttempt[];
+  modelCalls?: ModelCallRecord[];
 }
 
 export class SessionStore {
@@ -38,6 +40,7 @@ export class SessionStore {
   private readonly approvals = new Map<ApprovalRequestId, ApprovalRequest>();
   private readonly commands = new Map<string, ShellCommandResult>();
   private readonly repairs = new Map<string, SelfRepairAttempt>();
+  private readonly modelCalls = new Map<string, ModelCallRecord>();
 
   constructor(private readonly filePath: string) {}
 
@@ -51,12 +54,16 @@ export class SessionStore {
       this.approvals.clear();
       this.commands.clear();
       this.repairs.clear();
+      this.modelCalls.clear();
       for (const session of snapshot.sessions ?? []) this.sessions.set(session.id, session);
       for (const run of snapshot.runs ?? []) this.runs.set(run.id, run);
       for (const patch of snapshot.patches ?? []) this.patches.set(patch.id, patch);
       for (const approval of snapshot.approvals ?? []) this.approvals.set(approval.id, approval);
       for (const command of snapshot.commands ?? []) this.commands.set(command.id, command);
       for (const repair of snapshot.repairs ?? []) this.repairs.set(repair.id, repair);
+      for (const modelCall of snapshot.modelCalls ?? []) {
+        this.modelCalls.set(modelCall.id, modelCall);
+      }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -240,6 +247,12 @@ export class SessionStore {
     return attempt;
   }
 
+  async saveModelCall(record: ModelCallRecord): Promise<ModelCallRecord> {
+    this.modelCalls.set(record.id, record);
+    await this.save();
+    return record;
+  }
+
   getSessionLog(sessionId: SessionId): SessionLogResponse {
     const session = this.requireSession(sessionId);
     const runs = [...this.runs.values()]
@@ -257,7 +270,10 @@ export class SessionStore {
     const repairs = [...this.repairs.values()]
       .filter((repair) => repair.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { session, runs, patches, approvals, commands, repairs };
+    const modelCalls = [...this.modelCalls.values()]
+      .filter((modelCall) => modelCall.sessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { session, runs, patches, approvals, commands, repairs, modelCalls };
   }
 
   private requireSession(id: SessionId): AgentSession {
@@ -294,6 +310,9 @@ export class SessionStore {
       ),
       commands: [...this.commands.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
       repairs: [...this.repairs.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      modelCalls: [...this.modelCalls.values()].sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      ),
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;

@@ -431,7 +431,16 @@ button {
   background: #f8fbff;
 }
 
-.shell-box input {
+.repair-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #dcd4e8;
+  border-radius: 8px;
+  background: #fbf9ff;
+}
+
+.shell-box input,
+.repair-box input {
   box-sizing: border-box;
   width: 100%;
   min-height: 34px;
@@ -442,6 +451,16 @@ button {
   color: #2f2a24;
   font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
   font-size: 13px;
+}
+
+.repair-message {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #655c70;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .shell-result {

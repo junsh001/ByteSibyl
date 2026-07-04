@@ -18,15 +18,16 @@ and published as a tutorial chapter and blog draft.
 | 7 | Approval and Guardrails | Permission classes, approval interruption, forbidden actions |
 | 8 | Shell Runner | Safe command execution, timeout, stdout/stderr capture |
 | 9 | Self-Repair Loop | Typecheck failure to patch to verification loop |
-| 10 | LSP Diagnostics | TypeScript diagnostics as Web and agent feedback |
-| 11 | Context Engine | Repo map, relevant file selection, context budget control |
-| 12 | Todo Planner | Explicit task plan and task-state transitions |
-| 13 | Skills | Reusable workflow instructions loaded from skill files |
-| 14 | Hooks | Deterministic before/after tool and edit interception |
-| 15 | Trace and Replay | Timeline traces, session replay, exportable trace JSON |
-| 16 | Evaluation | Eval task format, batch runner, objective metrics |
-| 17 | Subagents | Planner/coder/reviewer roles with separated permissions |
-| 18 | Engineering Route | Productization gaps: sandboxing, multi-user, plugins, deployment |
+| 10 | Model Provider Integration | Real model adapters, API key config, timeout/error handling, usage records |
+| 11 | LSP Diagnostics | TypeScript diagnostics as Web and agent feedback |
+| 12 | Context Engine | Repo map, relevant file selection, context budget control |
+| 13 | Todo Planner | Explicit task plan and task-state transitions |
+| 14 | Skills | Reusable workflow instructions loaded from skill files |
+| 15 | Hooks | Deterministic before/after tool and edit interception |
+| 16 | Trace and Replay | Timeline traces, session replay, exportable trace JSON |
+| 17 | Evaluation | Eval task format, batch runner, objective metrics |
+| 18 | Subagents | Planner/coder/reviewer roles with separated permissions |
+| 19 | Engineering Route | Productization gaps: sandboxing, multi-user, plugins, deployment |
 
 ## Priority Lanes
 
@@ -36,14 +37,20 @@ Complete Phases 0, 1, 2, 3, 4, 6, 7, 8, and 9. This creates the first complete
 Web coding-agent loop: inspect, validate, propose patch, approve, apply, and
 verify.
 
+### Model-backed Agent
+
+Complete Phase 10 after the safe local loop exists. This replaces the mock model
+with real provider adapters while keeping tool schemas, permissions, patch
+approval, and shell guardrails as deterministic boundaries.
+
 ### Stability and Observability
 
-Complete Phases 5, 10, 11, 12, 15, and 16. This turns the demo loop into a
+Complete Phases 5, 11, 12, 13, 16, and 17. This turns the demo loop into a
 stateful and measurable agent system.
 
 ### Extension
 
-Complete Phases 13, 14, 17, and 18 after the single-agent loop is stable.
+Complete Phases 14, 15, 18, and 19 after the single-agent loop is stable.
 
 ## Package Direction
 
@@ -64,4 +71,3 @@ The target architecture separates existing agent behavior into focused packages:
 
 Existing packages may be migrated gradually. Do not rename or split them before
 the phase that requires the boundary.
-

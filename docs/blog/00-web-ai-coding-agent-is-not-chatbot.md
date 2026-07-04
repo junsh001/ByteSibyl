@@ -34,7 +34,7 @@ Web UI 是操作界面，不是 agent 内核。Server 负责 session、API、事
 Phase 0 不实现运行时能力，只建立项目治理基线：
 
 - `AGENTS.md`：定义项目硬规则，禁止提前实现未来阶段。
-- `ROADMAP.md`：列出 Phase 0 到 Phase 18 的阶段路线。
+- `ROADMAP.md`：列出 Phase 0 到 Phase 19 的阶段路线。
 - `docs/PRODUCT_SPEC.md`：说明产品范围和不做什么。
 - `docs/ARCHITECTURE.md`：说明 Web、Server、Agent Runtime 的边界。
 - `docs/BLOG_PLAN.md`：定义博客系列和中文写作规范。

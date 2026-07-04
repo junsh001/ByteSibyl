@@ -217,15 +217,16 @@ Shell Runner 不允许执行未分类命令。
 | 第 7 章 | Approval 与 Guardrails：Agent 不能随便执行 | Phase 7 | 权限、审批、中断、恢复 |
 | 第 8 章 | Shell Runner：运行测试并读取失败 | Phase 8 | 命令执行、超时、stdout/stderr、错误压缩 |
 | 第 9 章 | 自修复循环：失败后继续定位与修复 | Phase 9 | run → error → edit → verify |
-| 第 10 章 | LSP Diagnostics：把编译器变成反馈源 | Phase 10 | diagnostics、行号、类型错误、IDE 级反馈 |
-| 第 11 章 | Context Engine：控制上下文窗口 | Phase 11 | repo map、相关文件选择、压缩 |
-| 第 12 章 | Todo Planner：任务状态机 | Phase 12 | todo_write、状态迁移、blocked |
-| 第 13 章 | Skills：复用工作流 | Phase 13 | SKILL.md、项目规则、任务模板 |
-| 第 14 章 | Hooks：确定性拦截与自动化 | Phase 14 | before/after tool、审计、策略执行 |
-| 第 15 章 | Trace 与 Replay：让 Agent 可观察 | Phase 15 | tracing、logs、session replay |
-| 第 16 章 | Eval：如何判断 Agent 真的有用 | Phase 16 | benchmark、成功标准、越权检测 |
-| 第 17 章 | Subagents：什么时候需要多 Agent | Phase 17 | planner/coder/reviewer、上下文隔离 |
-| 第 18 章 | 从教学项目到工程产品 | Phase 18 | 部署、沙箱、多租户、插件化路线 |
+| 第 10 章 | Model Provider Integration：接入真实大模型 | Phase 10 | provider adapter、API key、timeout、usage、错误处理 |
+| 第 11 章 | LSP Diagnostics：把编译器变成反馈源 | Phase 11 | diagnostics、行号、类型错误、IDE 级反馈 |
+| 第 12 章 | Context Engine：控制上下文窗口 | Phase 12 | repo map、相关文件选择、压缩 |
+| 第 13 章 | Todo Planner：任务状态机 | Phase 13 | todo_write、状态迁移、blocked |
+| 第 14 章 | Skills：复用工作流 | Phase 14 | SKILL.md、项目规则、任务模板 |
+| 第 15 章 | Hooks：确定性拦截与自动化 | Phase 15 | before/after tool、审计、策略执行 |
+| 第 16 章 | Trace 与 Replay：让 Agent 可观察 | Phase 16 | tracing、logs、session replay |
+| 第 17 章 | Eval：如何判断 Agent 真的有用 | Phase 17 | benchmark、成功标准、越权检测 |
+| 第 18 章 | Subagents：什么时候需要多 Agent | Phase 18 | planner/coder/reviewer、上下文隔离 |
+| 第 19 章 | 从教学项目到工程产品 | Phase 19 | 部署、沙箱、多租户、插件化路线 |
 
 ---
 
@@ -688,7 +689,49 @@ docs/blog/09-from-answer-to-repair-loop.md
 
 ---
 
-### Phase 10：LSP Diagnostics
+### Phase 10：Model Provider Integration
+
+**目标**：把 Phase 4 的 mock model-provider 替换为可配置的真实模型 provider adapter。
+
+代码产物：
+
+```text
+packages/model-provider
+apps/server/src/config.ts
+apps/web/src/features/provider-status
+```
+
+实现内容：
+
+```text
+1. 支持 mock provider 与真实 provider 配置切换。
+2. 支持 DeepSeek 或 OpenAI 兼容 API 的最小 adapter。
+3. 从环境变量读取 API key、base URL、model name、timeout。
+4. 记录 model latency、usage、错误状态。
+5. Web 展示 provider 与模型状态，但不暴露 API key。
+6. Agent Loop 继续通过 Tool System 调用结构化工具。
+```
+
+验收：
+
+```text
+1. 默认 mock provider 仍可离线运行。
+2. 配置 API key 后可调用真实模型。
+3. 模型不能绕过 permission、patch approval、shell guardrails。
+4. 超时、认证失败、空响应都有清晰错误。
+5. model request / response 摘要可进入 trace。
+```
+
+教程产物：
+
+```text
+docs/tutorial/chapter-10-model-provider-integration.md
+docs/blog/10-model-provider-integration-for-coding-agents.md
+```
+
+---
+
+### Phase 11：LSP Diagnostics
 
 **目标**：把 IDE 级诊断接入 Agent。
 
@@ -728,13 +771,13 @@ get_diagnostics
 教程产物：
 
 ```text
-docs/tutorial/chapter-10-lsp-diagnostics.md
-docs/blog/10-compiler-feedback-for-coding-agents.md
+docs/tutorial/chapter-11-lsp-diagnostics.md
+docs/blog/11-compiler-feedback-for-coding-agents.md
 ```
 
 ---
 
-### Phase 11：Context Engine
+### Phase 12：Context Engine
 
 **目标**：控制上下文窗口，避免把整个仓库塞给模型。
 
@@ -767,13 +810,13 @@ packages/context-engine
 教程产物：
 
 ```text
-docs/tutorial/chapter-11-context-engine.md
-docs/blog/11-own-your-context-window.md
+docs/tutorial/chapter-12-context-engine.md
+docs/blog/12-own-your-context-window.md
 ```
 
 ---
 
-### Phase 12：Todo Planner
+### Phase 13：Todo Planner
 
 **目标**：让 agent 的任务计划显式化。
 
@@ -813,13 +856,13 @@ todo_read
 教程产物：
 
 ```text
-docs/tutorial/chapter-12-todo-planner.md
-docs/blog/12-todo-is-agent-state-machine.md
+docs/tutorial/chapter-13-todo-planner.md
+docs/blog/13-todo-is-agent-state-machine.md
 ```
 
 ---
 
-### Phase 13：Skills
+### Phase 14：Skills
 
 **目标**：把一次性提示词沉淀成可复用工作流。
 
@@ -852,13 +895,13 @@ packages/skills
 教程产物：
 
 ```text
-docs/tutorial/chapter-13-skills.md
-docs/blog/13-skills-turn-prompts-into-workflows.md
+docs/tutorial/chapter-14-skills.md
+docs/blog/14-skills-turn-prompts-into-workflows.md
 ```
 
 ---
 
-### Phase 14：Hooks
+### Phase 15：Hooks
 
 **目标**：实现确定性拦截，而不是完全依赖模型自律。
 
@@ -902,13 +945,13 @@ onAgentStop
 教程产物：
 
 ```text
-docs/tutorial/chapter-14-hooks.md
-docs/blog/14-hooks-are-deterministic-agent-control.md
+docs/tutorial/chapter-15-hooks.md
+docs/blog/15-hooks-are-deterministic-agent-control.md
 ```
 
 ---
 
-### Phase 15：Trace、Replay 与 Observability
+### Phase 16：Trace、Replay 与 Observability
 
 **目标**：让 agent 行为可观察、可复盘。
 
@@ -942,13 +985,13 @@ apps/web/src/features/trace-viewer
 教程产物：
 
 ```text
-docs/tutorial/chapter-15-trace-and-replay.md
-docs/blog/15-observability-for-coding-agents.md
+docs/tutorial/chapter-16-trace-and-replay.md
+docs/blog/16-observability-for-coding-agents.md
 ```
 
 ---
 
-### Phase 16：Evaluation
+### Phase 17：Evaluation
 
 **目标**：建立评测任务，避免只靠主观体验。
 
@@ -996,13 +1039,13 @@ forbidden_action_count
 教程产物：
 
 ```text
-docs/tutorial/chapter-16-evaluation.md
-docs/blog/16-how-to-evaluate-coding-agents.md
+docs/tutorial/chapter-17-evaluation.md
+docs/blog/17-how-to-evaluate-coding-agents.md
 ```
 
 ---
 
-### Phase 17：Subagents
+### Phase 18：Subagents
 
 **目标**：在单 agent 内核稳定后，加入最小多角色机制。
 
@@ -1036,13 +1079,13 @@ reviewer  只读，负责审查 diff 和验证结果
 教程产物：
 
 ```text
-docs/tutorial/chapter-17-subagents.md
-docs/blog/17-small-focused-agents.md
+docs/tutorial/chapter-18-subagents.md
+docs/blog/18-small-focused-agents.md
 ```
 
 ---
 
-### Phase 18：工程化路线
+### Phase 19：工程化路线
 
 **目标**：总结从教学项目到产品的差距。
 
@@ -1064,8 +1107,8 @@ docs/blog/17-small-focused-agents.md
 教程产物：
 
 ```text
-docs/tutorial/chapter-18-from-lab-to-product.md
-docs/blog/18-from-web-ai-coding-agent-lab-to-product.md
+docs/tutorial/chapter-19-from-lab-to-product.md
+docs/blog/19-from-web-ai-coding-agent-lab-to-product.md
 ```
 
 ---
@@ -1194,26 +1237,35 @@ Phase 9  自修复循环
 
 完成到 Phase 9，你就已经拥有一个最小可用的 Web AI Coding Agent。
 
-### 第二优先级：提高稳定性
+### 第二优先级：接入真实模型
+
+```text
+Phase 10 Model Provider Integration
+```
+
+完成 Phase 10 后，项目从 mock model provider 进入真实大模型 API 调用，但 tool schema、
+permission、patch approval 和 shell guardrails 仍然是确定性边界。
+
+### 第三优先级：提高稳定性
 
 ```text
 Phase 5  Session State
-Phase 10 LSP Diagnostics
-Phase 11 Context Engine
-Phase 12 Todo Planner
-Phase 15 Trace / Replay
-Phase 16 Eval
+Phase 11 LSP Diagnostics
+Phase 12 Context Engine
+Phase 13 Todo Planner
+Phase 16 Trace / Replay
+Phase 17 Eval
 ```
 
-完成到 Phase 16，你的项目开始从 demo 变成可评测的 agent 系统。
+完成到 Phase 17，你的项目开始从 demo 变成可评测的 agent 系统。
 
-### 第三优先级：扩展能力
+### 第四优先级：扩展能力
 
 ```text
-Phase 13 Skills
-Phase 14 Hooks
-Phase 17 Subagents
-Phase 18 工程化路线
+Phase 14 Skills
+Phase 15 Hooks
+Phase 18 Subagents
+Phase 19 工程化路线
 ```
 
 这些应在单 agent 闭环稳定后再做。

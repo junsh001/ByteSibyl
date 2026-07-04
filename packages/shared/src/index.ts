@@ -20,7 +20,8 @@ export interface HealthResponse {
     | 'phase-05-session-state'
     | 'phase-06-patch-engine'
     | 'phase-07-permission-approval-guardrails'
-    | 'phase-08-shell-runner';
+    | 'phase-08-shell-runner'
+    | 'phase-09-self-repair-loop';
   timestamp: string;
 }
 
@@ -95,6 +96,7 @@ export interface SessionLogResponse {
   patches: PatchProposal[];
   approvals: ApprovalRequest[];
   commands: ShellCommandResult[];
+  repairs: SelfRepairAttempt[];
 }
 
 export interface WorkspaceFileNode {
@@ -265,6 +267,68 @@ export interface ShellCommandResult {
 
 export interface ShellCommandResponse {
   result: ShellCommandResult;
+}
+
+export type SelfRepairStatus =
+  | 'checking'
+  | 'verified'
+  | 'proposed_patch'
+  | 'waiting_approval'
+  | 'ready_to_verify'
+  | 'failed'
+  | 'blocked';
+
+export type SelfRepairStepKind =
+  | 'run_check'
+  | 'diagnose_failure'
+  | 'create_patch'
+  | 'request_approval'
+  | 'verify';
+
+export interface SelfRepairStep {
+  kind: SelfRepairStepKind;
+  title: string;
+  detail?: string;
+  createdAt: string;
+}
+
+export interface SelfRepairAttempt {
+  id: string;
+  sessionId: SessionId;
+  command: string;
+  status: SelfRepairStatus;
+  message: string;
+  commandId?: string;
+  patchId?: PatchProposalId;
+  approvalId?: ApprovalRequestId;
+  steps: SelfRepairStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StartSelfRepairRequest {
+  sessionId?: SessionId;
+  command?: string;
+}
+
+export interface StartSelfRepairResponse {
+  session: AgentSession;
+  repair: SelfRepairAttempt;
+  commandResult: ShellCommandResult;
+  proposal?: PatchProposal;
+  approval?: ApprovalRequest;
+  decision?: PermissionDecision;
+}
+
+export interface VerifySelfRepairRequest {
+  sessionId: SessionId;
+  command?: string;
+  patchId?: PatchProposalId;
+}
+
+export interface VerifySelfRepairResponse {
+  repair: SelfRepairAttempt;
+  commandResult: ShellCommandResult;
 }
 
 export type JsonSchemaType = 'object' | 'string' | 'number' | 'boolean' | 'array';

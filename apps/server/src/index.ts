@@ -18,6 +18,7 @@ import {
 import { config } from './config.js';
 import { registerAgentRoutes } from './routes/agent.js';
 import { registerPatchRoutes } from './routes/patches.js';
+import { registerSelfRepairRoutes } from './routes/self-repair.js';
 import { registerShellRoutes } from './routes/shell.js';
 import { registerToolRoutes } from './routes/tools.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
@@ -37,11 +38,12 @@ await registerToolRoutes(app, toolRegistry, toolRunner);
 await registerAgentRoutes(app, { model, toolRegistry, toolRunner, sessionStore });
 await registerPatchRoutes(app, { workspace, sessionStore });
 await registerShellRoutes(app, { shellRunner, sessionStore });
+await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-08-shell-runner',
+  phase: 'phase-09-self-repair-loop',
   timestamp: new Date().toISOString(),
 }));
 

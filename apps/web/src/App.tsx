@@ -8,6 +8,7 @@ import type {
   HealthResponse,
   PatchProposal,
   SearchTextMatch,
+  SelfRepairAttempt,
   ShellCommandResult,
   SessionLogResponse,
   ToolDefinition,
@@ -29,6 +30,10 @@ export default function App() {
   const [shellCommand, setShellCommand] = useState('npm run typecheck');
   const [shellResult, setShellResult] = useState<ShellCommandResult | null>(null);
   const [shellRunning, setShellRunning] = useState(false);
+  const [repairCommand, setRepairCommand] = useState('npm run typecheck');
+  const [repairAttempt, setRepairAttempt] = useState<SelfRepairAttempt | null>(null);
+  const [repairRunning, setRepairRunning] = useState(false);
+  const [repairVerifying, setRepairVerifying] = useState(false);
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
@@ -85,7 +90,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 8 Shell Runner');
+    const result = await api.createSession('Phase 9 Self-Repair Loop');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -121,7 +126,7 @@ export default function App() {
 
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
-    const activeSession = session ?? (await api.createSession('Phase 8 Shell Runner')).session;
+    const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -234,7 +239,7 @@ export default function App() {
     setError(null);
     setShellRunning(true);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 8 Shell Runner')).session;
+      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -256,7 +261,7 @@ export default function App() {
     setAgentRunning(true);
     setCurrentRunId(null);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 8 Shell Runner')).session;
+      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -300,11 +305,61 @@ export default function App() {
     }
   }
 
+  async function startSelfRepair() {
+    setError(null);
+    setRepairRunning(true);
+    try {
+      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+      setSession(activeSession);
+      const result = await api.startSelfRepair({
+        sessionId: activeSession.id,
+        command: repairCommand,
+      });
+      setSession(result.session);
+      setShellResult(result.commandResult);
+      setRepairAttempt(result.repair);
+      if (result.proposal) {
+        setPatchProposal(result.proposal);
+        setApproval(result.approval ?? null);
+        if (result.proposal.updatedContent !== undefined) {
+          const file = await api.readWorkspaceFile(result.proposal.path);
+          setSelectedFile(file);
+          setPatchDraft(result.proposal.updatedContent);
+        }
+      }
+      await refreshSessionLog(result.session);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRepairRunning(false);
+    }
+  }
+
+  async function verifySelfRepair() {
+    if (!session) return;
+    setError(null);
+    setRepairVerifying(true);
+    try {
+      const result = await api.verifySelfRepair({
+        sessionId: session.id,
+        command: repairCommand,
+        patchId: patchProposal?.id,
+      });
+      setShellResult(result.commandResult);
+      setRepairAttempt(result.repair);
+      await refreshSessionLog(session);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRepairVerifying(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 8</p>
+          <p className="eyebrow">Phase 9</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -381,8 +436,45 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>Shell Runner 只执行白名单安全命令，并捕获 stdout/stderr。</p>
-            <p>命令不会经过 shell 字符串解释；危险命令会被 guardrails 阻断。</p>
+            <p>Self-Repair Loop 会先运行安全验证命令，再把失败修复转换成 Patch Proposal。</p>
+            <p>文件写入仍然必须经过人工审批和已批准 Patch Apply。</p>
+          </div>
+          <div className="repair-box">
+            <div className="todo-title">Self-Repair Loop</div>
+            <input
+              value={repairCommand}
+              onChange={(event) => setRepairCommand(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void startSelfRepair();
+              }}
+            />
+            <button
+              className="primary-action compact"
+              type="button"
+              disabled={repairRunning || !repairCommand.trim()}
+              onClick={() => void startSelfRepair()}
+            >
+              {repairRunning ? '检测中...' : '运行自修复循环'}
+            </button>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={
+                !session ||
+                repairVerifying ||
+                Boolean(patchProposal && patchProposal.status !== 'applied')
+              }
+              onClick={() => void verifySelfRepair()}
+            >
+              {repairVerifying ? '验证中...' : '重新验证'}
+            </button>
+            <div className="state-row">
+              <span>Repair</span>
+              <strong>{repairAttempt?.status ?? 'none'}</strong>
+            </div>
+            <div className="repair-message">
+              {repairAttempt?.message ?? '运行后会生成修复记录；需要修改文件时会进入审批流程。'}
+            </div>
           </div>
           <div className="shell-box">
             <div className="todo-title">Shell Runner</div>
@@ -538,6 +630,10 @@ export default function App() {
               <span>Commands</span>
               <strong>{sessionLog?.commands.length ?? 0}</strong>
             </div>
+            <div className="state-row">
+              <span>Repairs</span>
+              <strong>{sessionLog?.repairs.length ?? 0}</strong>
+            </div>
             <button
               className="secondary-action"
               type="button"
@@ -591,6 +687,7 @@ export default function App() {
                 应用已批准 Patch
               </li>
               <li className={shellResult ? 'done' : ''}>安全 Shell Runner</li>
+              <li className={repairAttempt ? 'done' : ''}>测试失败后的自修复循环</li>
             </ul>
           </div>
         </aside>
@@ -598,7 +695,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 8 和 Phase 15 扩展</small>
+            <small>Phase 9 和 Phase 15 扩展</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -639,6 +736,11 @@ export default function App() {
             {sessionLog?.commands.slice(-5).map((command) => (
               <div className="log-line muted" key={command.id}>
                 command {command.id.slice(0, 8)} {command.status} {command.command}
+              </div>
+            ))}
+            {sessionLog?.repairs.slice(-5).map((repair) => (
+              <div className="log-line muted" key={repair.id}>
+                repair {repair.id.slice(0, 8)} {repair.status} {repair.message}
               </div>
             ))}
           </div>

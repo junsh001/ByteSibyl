@@ -15,10 +15,14 @@ import type {
   SearchTextResponse,
   ShellCommandRequest,
   ShellCommandResponse,
+  StartSelfRepairRequest,
+  StartSelfRepairResponse,
   SessionLogResponse,
   ToolCallRequest,
   ToolListResponse,
   ToolResult,
+  VerifySelfRepairRequest,
+  VerifySelfRepairResponse,
   WorkspaceFileNode,
   WorkspaceInfo,
 } from '@wac/shared';
@@ -86,6 +90,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     }).then(json<ShellCommandResponse>),
+  startSelfRepair: (request: StartSelfRepairRequest) =>
+    fetch('/api/self-repair/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<StartSelfRepairResponse>),
+  verifySelfRepair: (request: VerifySelfRepairRequest) =>
+    fetch('/api/self-repair/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<VerifySelfRepairResponse>),
   createSession: (title?: string) =>
     fetch('/api/sessions', {
       method: 'POST',

@@ -70,7 +70,7 @@ Phase 0 不实现新的运行时接口，只确定未来接口的归属：
 Phase 0 创建或更新以下文件：
 
 - `AGENTS.md`：项目硬规则和阶段纪律。
-- `ROADMAP.md`：Phase 0 到 Phase 18 的路线图。
+- `ROADMAP.md`：Phase 0 到 Phase 19 的路线图。
 - `docs/PRODUCT_SPEC.md`：产品定位、用户、范围和成功标准。
 - `docs/ARCHITECTURE.md`：目标架构和依赖规则。
 - `docs/BLOG_PLAN.md`：中文教程和中文博客的写作计划。
@@ -100,7 +100,7 @@ npm run typecheck
 同时检查：
 
 - `AGENTS.md` 是否禁止提前实现未来阶段。
-- `ROADMAP.md` 是否覆盖 Phase 0 到 Phase 18。
+- `ROADMAP.md` 是否覆盖 Phase 0 到 Phase 19。
 - `skills/web-ai-coding-agent/SKILL.md` 是否定义“代码 + 文档 + 教程 + 博客”的同步流程。
 - `docs/tutorial/` 和 `docs/blog/` 下的阶段产物是否使用中文。
 

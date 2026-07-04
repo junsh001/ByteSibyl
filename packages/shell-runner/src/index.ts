@@ -24,6 +24,7 @@ const FORBIDDEN_TOKENS = new Set(['|', '||', '&', '&&', ';', '>', '>>', '<', '`'
 const SAFE_COMMANDS = new Set([
   'npm --version',
   'npm run typecheck',
+  'npm --prefix examples/buggy-ts-project run typecheck',
   'npm run build',
   'node --version',
   'tsc --noEmit',

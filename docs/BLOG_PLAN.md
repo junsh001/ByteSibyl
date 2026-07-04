@@ -28,15 +28,16 @@ Series title: 从 0 到 1 构建 Web AI Coding Agent
 | 7 | `docs/blog/07-agents-need-permission-boundaries.md` |
 | 8 | `docs/blog/08-let-agent-run-tests-safely.md` |
 | 9 | `docs/blog/09-from-answer-to-repair-loop.md` |
-| 10 | `docs/blog/10-compiler-feedback-for-coding-agents.md` |
-| 11 | `docs/blog/11-own-your-context-window.md` |
-| 12 | `docs/blog/12-todo-is-agent-state-machine.md` |
-| 13 | `docs/blog/13-skills-turn-prompts-into-workflows.md` |
-| 14 | `docs/blog/14-hooks-are-deterministic-agent-control.md` |
-| 15 | `docs/blog/15-observability-for-coding-agents.md` |
-| 16 | `docs/blog/16-how-to-evaluate-coding-agents.md` |
-| 17 | `docs/blog/17-small-focused-agents.md` |
-| 18 | `docs/blog/18-from-web-ai-coding-agent-lab-to-product.md` |
+| 10 | `docs/blog/10-model-provider-integration-for-coding-agents.md` |
+| 11 | `docs/blog/11-compiler-feedback-for-coding-agents.md` |
+| 12 | `docs/blog/12-own-your-context-window.md` |
+| 13 | `docs/blog/13-todo-is-agent-state-machine.md` |
+| 14 | `docs/blog/14-skills-turn-prompts-into-workflows.md` |
+| 15 | `docs/blog/15-hooks-are-deterministic-agent-control.md` |
+| 16 | `docs/blog/16-observability-for-coding-agents.md` |
+| 17 | `docs/blog/17-how-to-evaluate-coding-agents.md` |
+| 18 | `docs/blog/18-small-focused-agents.md` |
+| 19 | `docs/blog/19-from-web-ai-coding-agent-lab-to-product.md` |
 
 ## Standard Article Structure
 

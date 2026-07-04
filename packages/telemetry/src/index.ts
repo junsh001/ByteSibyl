@@ -17,6 +17,7 @@ import type {
   PatchProposalId,
   PatchProposalStatus,
   ShellCommandResult,
+  SelfRepairAttempt,
   SessionId,
   SessionLogResponse,
 } from '@wac/shared';
@@ -27,6 +28,7 @@ interface SessionStoreSnapshot {
   patches?: PatchProposal[];
   approvals?: ApprovalRequest[];
   commands?: ShellCommandResult[];
+  repairs?: SelfRepairAttempt[];
 }
 
 export class SessionStore {
@@ -35,6 +37,7 @@ export class SessionStore {
   private readonly patches = new Map<PatchProposalId, PatchProposal>();
   private readonly approvals = new Map<ApprovalRequestId, ApprovalRequest>();
   private readonly commands = new Map<string, ShellCommandResult>();
+  private readonly repairs = new Map<string, SelfRepairAttempt>();
 
   constructor(private readonly filePath: string) {}
 
@@ -47,11 +50,13 @@ export class SessionStore {
       this.patches.clear();
       this.approvals.clear();
       this.commands.clear();
+      this.repairs.clear();
       for (const session of snapshot.sessions ?? []) this.sessions.set(session.id, session);
       for (const run of snapshot.runs ?? []) this.runs.set(run.id, run);
       for (const patch of snapshot.patches ?? []) this.patches.set(patch.id, patch);
       for (const approval of snapshot.approvals ?? []) this.approvals.set(approval.id, approval);
       for (const command of snapshot.commands ?? []) this.commands.set(command.id, command);
+      for (const repair of snapshot.repairs ?? []) this.repairs.set(repair.id, repair);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -229,6 +234,12 @@ export class SessionStore {
     return result;
   }
 
+  async saveSelfRepairAttempt(attempt: SelfRepairAttempt): Promise<SelfRepairAttempt> {
+    this.repairs.set(attempt.id, attempt);
+    await this.save();
+    return attempt;
+  }
+
   getSessionLog(sessionId: SessionId): SessionLogResponse {
     const session = this.requireSession(sessionId);
     const runs = [...this.runs.values()]
@@ -243,7 +254,10 @@ export class SessionStore {
     const commands = [...this.commands.values()]
       .filter((command) => command.sessionId === sessionId)
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-    return { session, runs, patches, approvals, commands };
+    const repairs = [...this.repairs.values()]
+      .filter((repair) => repair.sessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { session, runs, patches, approvals, commands, repairs };
   }
 
   private requireSession(id: SessionId): AgentSession {
@@ -279,6 +293,7 @@ export class SessionStore {
         a.createdAt.localeCompare(b.createdAt),
       ),
       commands: [...this.commands.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+      repairs: [...this.repairs.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;

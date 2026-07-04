@@ -10,6 +10,7 @@
     { "path": "./packages/patch-engine" },
     { "path": "./packages/permission" },
     { "path": "./packages/shell-runner" },
+    { "path": "./packages/self-repair" },
     { "path": "./packages/telemetry" },
     { "path": "./apps/server" },
     { "path": "./apps/web" }

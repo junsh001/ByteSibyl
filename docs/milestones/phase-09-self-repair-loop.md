@@ -22,6 +22,8 @@
 - 不实现 LSP Diagnostics。
 - 不实现真实模型自动修复。
 - 不实现多轮自动 apply。
+- 不实现多轮自动 retry。
+- 不实现完整失败报告生成器。
 - 不绕过 approval 直接写文件。
 - 不实现命令 approval。
 - 不实现后台长任务队列。
@@ -50,6 +52,7 @@
 5. 用户应用已批准 Patch 后，可以重新验证。
 6. Session Log 包含 self-repair attempts。
 7. 文档明确当前修复器是教学用 heuristic，不是完整自动修复系统。
+8. 示例项目保持初始 typecheck 失败状态，便于演示失败到 Patch Proposal 的流程。
 
 ## 验证命令
 

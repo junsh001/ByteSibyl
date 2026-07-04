@@ -11,10 +11,11 @@ produce code, design documentation, a tutorial chapter, and a blog draft.
 Before editing for any phase, read:
 
 1. `AGENTS.md`
-2. `ROADMAP.md`
-3. `docs/PRODUCT_SPEC.md`
-4. `docs/ARCHITECTURE.md`
-5. The current phase file under `docs/milestones/`
+2. `web-ai-coding-agent-tutorial-plan.md`
+3. `ROADMAP.md`
+4. `docs/PRODUCT_SPEC.md`
+5. `docs/ARCHITECTURE.md`
+6. The current phase file under `docs/milestones/`
 
 ## Phase Workflow
 

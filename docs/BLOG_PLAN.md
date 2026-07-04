@@ -23,11 +23,11 @@ Series title: 从 0 到 1 构建 Web AI Coding Agent
 | 2 | `docs/blog/02-agent-needs-workspace-tools.md` |
 | 3 | `docs/blog/03-tools-are-structured-outputs.md` |
 | 4 | `docs/blog/04-model-tool-observation-loop.md` |
-| 5 | `docs/blog/05-agent-needs-state.md` |
-| 6 | `docs/blog/06-safe-code-editing-for-agents.md` |
-| 7 | `docs/blog/07-agents-need-permission-boundaries.md` |
-| 8 | `docs/blog/08-let-agent-run-tests-safely.md` |
-| 9 | `docs/blog/09-from-answer-to-repair-loop.md` |
+| 5 | `docs/blog/05-agent-needs-session-state.md` |
+| 6 | `docs/blog/06-diff-preview-before-file-write.md` |
+| 7 | `docs/blog/07-approval-is-a-state-machine.md` |
+| 8 | `docs/blog/08-shell-runner-is-not-a-terminal.md` |
+| 9 | `docs/blog/09-self-repair-loop-needs-human-boundaries.md` |
 | 10 | `docs/blog/10-model-provider-integration-for-coding-agents.md` |
 | 11 | `docs/blog/11-compiler-feedback-for-coding-agents.md` |
 | 12 | `docs/blog/12-own-your-context-window.md` |

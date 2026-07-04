@@ -4,8 +4,7 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/workspace" },
-    { "path": "./packages/db" },
-    { "path": "./packages/agent" },
+    { "path": "./packages/tool-system" },
     { "path": "./apps/server" },
     { "path": "./apps/web" }
   ]

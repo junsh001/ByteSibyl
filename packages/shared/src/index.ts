@@ -12,7 +12,10 @@ export type SessionId = string;
 export interface HealthResponse {
   ok: boolean;
   service: 'web-ai-coding-agent-lab';
-  phase: 'phase-01-web-server-shell' | 'phase-02-workspace-filesystem';
+  phase:
+    | 'phase-01-web-server-shell'
+    | 'phase-02-workspace-filesystem'
+    | 'phase-03-tool-system';
   timestamp: string;
 }
 
@@ -61,6 +64,55 @@ export interface SearchTextResponse {
   matches: SearchTextMatch[];
 }
 
+export type JsonSchemaType = 'object' | 'string' | 'number' | 'boolean' | 'array';
+
+export interface JsonSchema {
+  type: JsonSchemaType;
+  description?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  additionalProperties?: boolean;
+  minLength?: number;
+}
+
+export type ToolPermission = 'read_only' | 'write_patch' | 'execute_safe' | 'execute_risky' | 'forbidden';
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  schema: JsonSchema;
+  permission: ToolPermission;
+}
+
+export interface ToolCallRequest {
+  name: string;
+  input: unknown;
+}
+
+export interface ToolResult {
+  ok: boolean;
+  name: string;
+  permission: ToolPermission;
+  output?: unknown;
+  error?: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface ToolCallTrace {
+  name: string;
+  permission: ToolPermission;
+  input: unknown;
+  ok: boolean;
+  error?: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface ToolListResponse {
+  tools: ToolDefinition[];
+}
+
 export type AgentShellEvent =
   | {
       type: 'session.created';
@@ -80,56 +132,11 @@ export type AgentShellEvent =
       timestamp: string;
     };
 
-// ---------------------------------------------------------------------------
-// Agent streaming protocol (server -> client over SSE).
-// Each SSE `data:` line carries exactly one JSON-encoded AgentEvent.
-// ---------------------------------------------------------------------------
-
-export type ToolName =
-  | 'list_dir'
-  | 'read_file'
-  | 'write_file'
-  | 'edit_file'
-  | 'search'
-  | 'run'
-  | 'finish';
-
-export type FileAction = 'create' | 'update' | 'delete';
-
 export interface PlanStep {
   id: string;
   title: string;
   status: 'pending' | 'active' | 'done';
 }
-
-export type AgentEvent =
-  /** A high-level lifecycle signal for the UI status line. */
-  | { type: 'status'; phase: 'thinking' | 'acting' | 'idle'; text?: string }
-  /** Assistant natural-language text delta. */
-  | { type: 'token'; text: string }
-  /** Reasoning/chain-of-thought delta (only for reasoner models). */
-  | { type: 'reasoning'; text: string }
-  /** The model decided to call a tool. */
-  | { type: 'tool_call'; id: string; name: ToolName; args: Record<string, unknown> }
-  /** Result of a tool call. `summary` is a short human string for the UI. */
-  | {
-      type: 'tool_result';
-      id: string;
-      name: ToolName;
-      ok: boolean;
-      summary: string;
-      result?: unknown;
-    }
-  /** A file in the workspace changed (used to refresh the editor/file tree). */
-  | { type: 'file_change'; path: string; action: FileAction; diff?: string }
-  /** The agent's current plan (todo list). */
-  | { type: 'plan'; steps: PlanStep[] }
-  /** Token usage accounting for the turn. */
-  | { type: 'usage'; promptTokens: number; completionTokens: number }
-  /** A recoverable or fatal error. */
-  | { type: 'error'; message: string }
-  /** Turn finished. */
-  | { type: 'done'; finishReason: string };
 
 // ---------------------------------------------------------------------------
 // Client -> server request bodies
@@ -213,6 +220,6 @@ export type Locale = 'zh' | 'en';
 // ---------------------------------------------------------------------------
 
 /** Serialize a server event as an SSE frame. */
-export function sseFrame(event: AgentEvent | AgentShellEvent): string {
+export function sseFrame(event: AgentShellEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }

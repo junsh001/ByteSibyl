@@ -4,6 +4,9 @@ import type {
   HealthResponse,
   ReadWorkspaceFileResponse,
   SearchTextResponse,
+  ToolCallRequest,
+  ToolListResponse,
+  ToolResult,
   WorkspaceFileNode,
   WorkspaceInfo,
 } from '@wac/shared';
@@ -23,6 +26,13 @@ export const api = {
     ),
   searchWorkspace: (query: string) =>
     fetch(`/api/workspace/search?q=${encodeURIComponent(query)}`).then(json<SearchTextResponse>),
+  tools: () => fetch('/api/tools').then(json<ToolListResponse>),
+  runTool: (request: ToolCallRequest) =>
+    fetch('/api/tools/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<ToolResult>),
   createSession: (title?: string) =>
     fetch('/api/sessions', {
       method: 'POST',

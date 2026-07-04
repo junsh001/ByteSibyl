@@ -280,6 +280,23 @@ button {
   font-weight: 700;
 }
 
+.secondary-action {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 10px;
+  border: 1px solid #d7ccbc;
+  border-radius: 7px;
+  background: #fbfaf6;
+  color: #2d2924;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .primary-action:hover {
   background: #1f4d3d;
 }
@@ -301,6 +318,14 @@ button {
   border-top: 1px solid #e8e0d2;
 }
 
+.tool-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #e8e0d2;
+  border-radius: 8px;
+  background: #fbfaf6;
+}
+
 .todo-title {
   margin-bottom: 8px;
   font-size: 13px;
@@ -317,6 +342,45 @@ button {
 
 .todo-box li.done {
   color: #285f4b;
+}
+
+.tool-list {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.tool-item strong,
+.tool-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-item span {
+  color: #285f4b;
+}
+
+.tool-result {
+  max-height: 150px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #26231f;
+  color: #ede6d8;
+  font-size: 11px;
+}
+
+.tool-result.error {
+  color: #ffb4a8;
 }
 
 .log-stream {

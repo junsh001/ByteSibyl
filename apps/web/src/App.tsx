@@ -4,6 +4,8 @@ import type {
   AgentShellEvent,
   HealthResponse,
   SearchTextMatch,
+  ToolDefinition,
+  ToolResult,
   WorkspaceFileNode,
   WorkspaceInfo,
 } from '@wac/shared';
@@ -16,16 +18,19 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
+  const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [toolResult, setToolResult] = useState<ToolResult | null>(null);
   const [session, setSession] = useState<AgentSession | null>(null);
   const [events, setEvents] = useState<AgentShellEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void Promise.all([api.health(), api.workspace(), api.workspaceTree()])
-      .then(([healthResult, workspaceResult, treeResult]) => {
+    void Promise.all([api.health(), api.workspace(), api.workspaceTree(), api.tools()])
+      .then(([healthResult, workspaceResult, treeResult, toolResult]) => {
         setHealth(healthResult);
         setWorkspace(workspaceResult);
         setTree(treeResult);
+        setTools(toolResult.tools);
         const first = findFirstFile(treeResult);
         if (first) {
           void openFile(first.path);
@@ -69,6 +74,16 @@ export default function App() {
     }
     const result = await api.searchWorkspace(searchQuery);
     setSearchMatches(result.matches);
+  }
+
+  async function runReadTool() {
+    if (!selectedFile) return;
+    setError(null);
+    const result = await api.runTool({
+      name: 'read_file',
+      input: { path: selectedFile.path },
+    });
+    setToolResult(result);
   }
 
   return (
@@ -153,7 +168,31 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Agent Loop 将在 Phase 4 接入。</p>
-            <p>当前 workspace 可作为后续工具系统的只读上下文来源。</p>
+            <p>当前阶段先把 workspace 能力注册为结构化只读工具。</p>
+          </div>
+          <div className="tool-box">
+            <div className="todo-title">Tool System</div>
+            <div className="tool-list">
+              {tools.map((tool) => (
+                <div key={tool.name} className="tool-item">
+                  <strong>{tool.name}</strong>
+                  <span>{tool.permission}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={!selectedFile}
+              onClick={() => void runReadTool()}
+            >
+              用 read_file 工具读取当前文件
+            </button>
+            {toolResult ? (
+              <pre className={toolResult.ok ? 'tool-result' : 'tool-result error'}>
+                {JSON.stringify(toolResult, null, 2)}
+              </pre>
+            ) : null}
           </div>
           <div className="todo-box">
             <div className="todo-title">Todo Plan</div>
@@ -162,6 +201,7 @@ export default function App() {
               <li className="done">Workspace 文件树</li>
               <li className={selectedFile ? 'done' : ''}>读取文件内容</li>
               <li className={searchMatches.length > 0 ? 'done' : ''}>搜索文本</li>
+              <li className={tools.length > 0 ? 'done' : ''}>注册结构化工具</li>
             </ul>
           </div>
         </aside>

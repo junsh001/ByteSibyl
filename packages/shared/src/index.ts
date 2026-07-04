@@ -25,7 +25,8 @@ export interface HealthResponse {
     | 'phase-10-model-provider-integration'
     | 'phase-11-lsp-diagnostics'
     | 'phase-12-context-engine'
-    | 'phase-13-todo-planner';
+    | 'phase-13-todo-planner'
+    | 'phase-14-skills';
   timestamp: string;
 }
 
@@ -68,6 +69,7 @@ export type AgentRunStatus =
 export type AgentRunStepType =
   | 'context_summary'
   | 'todo'
+  | 'skill'
   | 'model_call'
   | 'tool_call'
   | 'tool_result'
@@ -190,6 +192,23 @@ export interface TodoItem {
 
 export interface TodoListResponse {
   todos: TodoItem[];
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  path: string;
+  triggers: string[];
+}
+
+export interface SkillSelection {
+  skill: SkillInfo;
+  reason: string;
+  instructions: string;
+}
+
+export interface SkillListResponse {
+  skills: SkillInfo[];
 }
 
 export type PatchProposalId = string;
@@ -536,6 +555,10 @@ export type AgentRunEvent =
       type: 'agent.todo_updated';
       todos: TodoItem[];
       reason: string;
+    }
+  | {
+      type: 'agent.skill_selected';
+      selection: SkillSelection;
     }
   | {
       type: 'agent.model_call';

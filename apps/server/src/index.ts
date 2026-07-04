@@ -6,6 +6,7 @@ import { ContextEngine } from '@wac/context-engine';
 import { createModelProvider } from '@wac/model-provider';
 import { TodoPlanner } from '@wac/planner';
 import { ShellRunner } from '@wac/shell-runner';
+import { SkillRegistry } from '@wac/skills';
 import { SessionStore } from '@wac/telemetry';
 import { WorkspaceService } from '@wac/workspace';
 import { ToolRunner, createWorkspaceToolRegistry } from '@wac/tool-system';
@@ -25,12 +26,14 @@ import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
 import { registerPatchRoutes } from './routes/patches.js';
 import { registerSelfRepairRoutes } from './routes/self-repair.js';
 import { registerShellRoutes } from './routes/shell.js';
+import { registerSkillRoutes } from './routes/skills.js';
 import { registerTodoRoutes } from './routes/todos.js';
 import { registerToolRoutes } from './routes/tools.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 
 const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
+const skillRegistry = await SkillRegistry.loadFromDirectory(config.skillsRoot);
 const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
 const planner = new TodoPlanner();
@@ -57,6 +60,7 @@ await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
 await registerTodoRoutes(app, planner);
+await registerSkillRoutes(app, skillRegistry);
 await registerDiagnosticsRoutes(app, diagnostics, workspace.root);
 await registerAgentRoutes(app, {
   model,
@@ -64,6 +68,7 @@ await registerAgentRoutes(app, {
   toolRunner,
   contextEngine,
   planner,
+  skillRegistry,
   sessionStore,
 });
 await registerPatchRoutes(app, { workspace, sessionStore });
@@ -73,7 +78,7 @@ await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-13-todo-planner',
+  phase: 'phase-14-skills',
   timestamp: new Date().toISOString(),
 }));
 

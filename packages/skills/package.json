@@ -1,5 +1,5 @@
 {
-  "name": "@wac/agent-core",
+  "name": "@wac/skills",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,14 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wac/context-engine": "*",
-    "@wac/model-provider": "*",
-    "@wac/planner": "*",
-    "@wac/shared": "*",
-    "@wac/skills": "*",
-    "@wac/tool-system": "*"
+    "@wac/shared": "*"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "typescript": "^5.7.2"
   }
 }

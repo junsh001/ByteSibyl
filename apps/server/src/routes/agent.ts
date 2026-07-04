@@ -3,6 +3,7 @@ import { runAgentLoop } from '@wac/agent-core';
 import type { ContextEngine } from '@wac/context-engine';
 import type { ModelProvider } from '@wac/model-provider';
 import type { TodoPlanner } from '@wac/planner';
+import type { SkillRegistry } from '@wac/skills';
 import {
   sseFrame,
   type AgentRunEvent,
@@ -21,6 +22,7 @@ export async function registerAgentRoutes(
     toolRunner: ToolRunner;
     contextEngine: ContextEngine;
     planner: TodoPlanner;
+    skillRegistry: SkillRegistry;
     sessionStore: SessionStore;
   },
 ): Promise<void> {
@@ -74,6 +76,7 @@ export async function registerAgentRoutes(
           toolRunner: deps.toolRunner,
           contextEngine: deps.contextEngine,
           planner: deps.planner,
+          skillRegistry: deps.skillRegistry,
           maxIterations: 6,
           signal: controller.signal,
           stepDelayMs: 150,
@@ -167,6 +170,8 @@ function classifyStep(event: AgentRunEvent): AgentRunStepType {
       return 'context_summary';
     case 'agent.todo_updated':
       return 'todo';
+    case 'agent.skill_selected':
+      return 'skill';
     case 'agent.model_call':
       return 'model_call';
     case 'agent.tool_call':
@@ -196,6 +201,8 @@ function titleForEvent(event: AgentRunEvent): string {
       return `Context summary ${event.summary.budget.usedChars}/${event.summary.budget.maxChars} chars`;
     case 'agent.todo_updated':
       return `Todo updated: ${event.reason}`;
+    case 'agent.skill_selected':
+      return `Skill selected: ${event.selection.skill.name}`;
     case 'agent.model_call':
       return `Model call ${event.call.provider}/${event.call.model} ${event.call.status}`;
     case 'agent.message':

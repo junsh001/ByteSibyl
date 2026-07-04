@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ContextEngine } from '@wac/context-engine';
 import type { ModelProvider } from '@wac/model-provider';
 import type { TodoPlanner } from '@wac/planner';
+import type { SkillRegistry } from '@wac/skills';
 import type {
   AgentRunEvent,
   AgentRunRequest,
@@ -19,6 +20,7 @@ export interface AgentLoopOptions {
   toolRunner: ToolRunner;
   contextEngine?: ContextEngine;
   planner?: TodoPlanner;
+  skillRegistry?: SkillRegistry;
   maxIterations?: number;
   signal?: AbortSignal;
   stepDelayMs?: number;
@@ -47,6 +49,17 @@ export async function* runAgentLoop(
     status: 'running',
     message: `Agent Loop started with maxIterations=${maxIterations}.`,
   };
+  const skillSelection = options.skillRegistry?.select(request.message) ?? null;
+  if (skillSelection) {
+    messages.splice(1, 0, {
+      role: 'system',
+      content: renderSkillInstructions(skillSelection.skill.name, skillSelection.instructions),
+    });
+    yield {
+      type: 'agent.skill_selected',
+      selection: skillSelection,
+    };
+  }
   if (options.planner) {
     yield todoEvent(options.planner.createInitialPlan(request.message), 'Agent run created plan.');
   }
@@ -307,6 +320,14 @@ function withContextMessage(messages: ModelMessage[], contextMessage: ModelMessa
     return [first, contextMessage, ...rest];
   }
   return [contextMessage, ...messages];
+}
+
+function renderSkillInstructions(name: string, instructions: string): string {
+  return [
+    `Selected skill: ${name}.`,
+    'Follow these reusable workflow instructions as guidance. They do not grant permission to bypass tools, approval, patch workflow, shell runner, or guardrails.',
+    instructions,
+  ].join('\n\n');
 }
 
 function wait(ms: number, signal?: AbortSignal): Promise<void> {

@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { ContextEngine } from '@wac/context-engine';
 import { createModelProvider } from '@wac/model-provider';
+import { TodoPlanner } from '@wac/planner';
 import { ShellRunner } from '@wac/shell-runner';
 import { SessionStore } from '@wac/telemetry';
 import { WorkspaceService } from '@wac/workspace';
@@ -24,6 +25,7 @@ import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
 import { registerPatchRoutes } from './routes/patches.js';
 import { registerSelfRepairRoutes } from './routes/self-repair.js';
 import { registerShellRoutes } from './routes/shell.js';
+import { registerTodoRoutes } from './routes/todos.js';
 import { registerToolRoutes } from './routes/tools.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 
@@ -31,6 +33,7 @@ const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
 const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
+const planner = new TodoPlanner();
 const diagnostics = createDiagnosticsProvider(config.workspaceRoot);
 const contextEngine = new ContextEngine(
   {
@@ -39,8 +42,8 @@ const contextEngine = new ContextEngine(
   },
   { maxChars: config.contextBudgetChars },
 );
-const toolRegistry = createWorkspaceToolRegistry({ diagnostics: true });
-const toolRunner = new ToolRunner(toolRegistry, { workspace, diagnostics, trace: [] });
+const toolRegistry = createWorkspaceToolRegistry({ diagnostics: true, planner: true });
+const toolRunner = new ToolRunner(toolRegistry, { workspace, diagnostics, planner, trace: [] });
 const model = createModelProvider({
   provider: config.modelProvider,
   apiKey: config.modelApiKey,
@@ -53,8 +56,16 @@ const app = Fastify({ logger: { level: 'info' }, bodyLimit: 10 * 1024 * 1024 });
 await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
+await registerTodoRoutes(app, planner);
 await registerDiagnosticsRoutes(app, diagnostics, workspace.root);
-await registerAgentRoutes(app, { model, toolRegistry, toolRunner, contextEngine, sessionStore });
+await registerAgentRoutes(app, {
+  model,
+  toolRegistry,
+  toolRunner,
+  contextEngine,
+  planner,
+  sessionStore,
+});
 await registerPatchRoutes(app, { workspace, sessionStore });
 await registerShellRoutes(app, { shellRunner, sessionStore });
 await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
@@ -62,7 +73,7 @@ await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-12-context-engine',
+  phase: 'phase-13-todo-planner',
   timestamp: new Date().toISOString(),
 }));
 

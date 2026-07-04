@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ContextEngine } from '@wac/context-engine';
 import type { ModelProvider } from '@wac/model-provider';
+import type { TodoPlanner } from '@wac/planner';
 import type {
   AgentRunEvent,
   AgentRunRequest,
@@ -8,6 +9,7 @@ import type {
   ModelMessage,
   ToolCallRequest,
   ToolDefinition,
+  TodoItem,
 } from '@wac/shared';
 import type { ToolRunner } from '@wac/tool-system';
 
@@ -16,6 +18,7 @@ export interface AgentLoopOptions {
   tools: ToolDefinition[];
   toolRunner: ToolRunner;
   contextEngine?: ContextEngine;
+  planner?: TodoPlanner;
   maxIterations?: number;
   signal?: AbortSignal;
   stepDelayMs?: number;
@@ -44,6 +47,9 @@ export async function* runAgentLoop(
     status: 'running',
     message: `Agent Loop started with maxIterations=${maxIterations}.`,
   };
+  if (options.planner) {
+    yield todoEvent(options.planner.createInitialPlan(request.message), 'Agent run created plan.');
+  }
 
   for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
     if (options.signal?.aborted) {
@@ -61,6 +67,16 @@ export async function* runAgentLoop(
       iteration,
       maxIterations,
     };
+    if (options.planner) {
+      yield todoEvent(
+        options.planner.completeStep('理解任务', 'Task accepted by agent loop.'),
+        'Task accepted by agent loop.',
+      );
+      yield todoEvent(
+        options.planner.startStep('构建上下文', 'Preparing model context.'),
+        'Preparing model context.',
+      );
+    }
 
     const contextResult = options.contextEngine
       ? await options.contextEngine.build({
@@ -70,6 +86,16 @@ export async function* runAgentLoop(
         })
       : undefined;
     if (contextResult) {
+      if (options.planner) {
+        yield todoEvent(
+          options.planner.completeStep('构建上下文', 'Context summary generated.'),
+          'Context summary generated.',
+        );
+        yield todoEvent(
+          options.planner.startStep('调用模型', 'Calling model provider.'),
+          'Calling model provider.',
+        );
+      }
       yield {
         type: 'agent.context_summary',
         summary: contextResult.summary,
@@ -90,6 +116,9 @@ export async function* runAgentLoop(
     } catch (err) {
       const latencyMs = Date.now() - modelStartedAt;
       const message = err instanceof Error ? err.message : String(err);
+      if (options.planner) {
+        yield todoEvent(options.planner.blockCurrent(message), message);
+      }
       yield {
         type: 'agent.model_call',
         call: createModelCallRecord({
@@ -123,6 +152,12 @@ export async function* runAgentLoop(
         usage: response.usage,
       }),
     };
+    if (options.planner) {
+      yield todoEvent(
+        options.planner.completeStep('调用模型', 'Model provider returned.'),
+        'Model provider returned.',
+      );
+    }
     if (options.signal?.aborted) {
       yield cancelledEvent();
       return;
@@ -139,6 +174,9 @@ export async function* runAgentLoop(
 
     const toolCalls = response.toolCalls ?? [];
     if (toolCalls.length === 0 || response.final) {
+      if (options.planner) {
+        yield todoEvent(options.planner.completeAll('Run finished without more tool calls.'), 'Run completed.');
+      }
       yield {
         type: 'agent.done',
         finishReason: response.final ? 'final' : 'stop',
@@ -156,6 +194,12 @@ export async function* runAgentLoop(
         type: 'agent.tool_call',
         call: toolCall,
       };
+      if (options.planner) {
+        yield todoEvent(
+          options.planner.startStep('执行工具', `Running ${toolCall.name}.`),
+          `Running ${toolCall.name}.`,
+        );
+      }
 
       await wait(stepDelayMs, options.signal);
       if (options.signal?.aborted) {
@@ -168,6 +212,19 @@ export async function* runAgentLoop(
         type: 'agent.tool_result',
         result,
       };
+      if (options.planner) {
+        if (result.ok) {
+          yield todoEvent(
+            options.planner.completeStep('执行工具', `${result.name} returned observation.`),
+            `${result.name} returned observation.`,
+          );
+        } else {
+          yield todoEvent(
+            options.planner.blockCurrent(result.error ?? `${result.name} failed.`),
+            result.error ?? `${result.name} failed.`,
+          );
+        }
+      }
 
       messages.push({
         role: 'tool',
@@ -181,6 +238,12 @@ export async function* runAgentLoop(
     type: 'agent.error',
     message: `Reached maxIterations=${maxIterations} before final answer.`,
   };
+  if (options.planner) {
+    yield todoEvent(
+      options.planner.blockCurrent(`Reached maxIterations=${maxIterations} before final answer.`),
+      'Max iterations reached before final answer.',
+    );
+  }
   yield {
     type: 'agent.done',
     finishReason: 'max_iterations',
@@ -193,6 +256,14 @@ function cancelledEvent(): AgentRunEvent {
   return {
     type: 'agent.done',
     finishReason: 'cancelled',
+  };
+}
+
+function todoEvent(todos: TodoItem[], reason: string): AgentRunEvent {
+  return {
+    type: 'agent.todo_updated',
+    todos,
+    reason,
   };
 }
 

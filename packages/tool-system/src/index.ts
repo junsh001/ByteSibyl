@@ -5,8 +5,11 @@ import type {
   ToolPermission,
   ToolResult,
   DiagnosticsResponse,
+  TodoListResponse,
+  TodoStatus,
   WorkspaceDiagnostic,
 } from '@wac/shared';
+import type { TodoPlanner } from '@wac/planner';
 import type { WorkspaceService } from '@wac/workspace';
 
 export interface DiagnosticsProvider {
@@ -16,6 +19,7 @@ export interface DiagnosticsProvider {
 export interface ToolContext {
   workspace: WorkspaceService;
   diagnostics?: DiagnosticsProvider;
+  planner?: TodoPlanner;
   trace?: ToolCallTrace[];
 }
 
@@ -128,6 +132,7 @@ export class ToolRunner {
 
 export interface WorkspaceToolRegistryOptions {
   diagnostics?: boolean;
+  planner?: boolean;
 }
 
 export function createWorkspaceToolRegistry(options: WorkspaceToolRegistryOptions = {}): ToolRegistry {
@@ -208,6 +213,71 @@ export function createWorkspaceToolRegistry(options: WorkspaceToolRegistryOption
           generatedAt: new Date().toISOString(),
           workspaceRoot: context.workspace.root,
         };
+      },
+    });
+  }
+
+  if (options.planner) {
+    registry.register({
+      name: 'todo_write',
+      description: 'Replace the visible todo plan with a new task item.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', minLength: 1 },
+        },
+        required: ['title'],
+        additionalProperties: false,
+      },
+      run: async (input: unknown, context): Promise<TodoListResponse> => {
+        if (!context.planner) throw new Error('Todo planner is not configured.');
+        const { title } = input as { title: string };
+        return { todos: context.planner.writeTodos([title]) };
+      },
+    });
+
+    registry.register({
+      name: 'todo_update',
+      description: 'Update a todo item status to pending, in_progress, done, or blocked.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          status: { type: 'string', minLength: 1 },
+          detail: { type: 'string' },
+        },
+        required: ['id', 'status'],
+        additionalProperties: false,
+      },
+      run: async (input: unknown, context): Promise<TodoListResponse> => {
+        if (!context.planner) throw new Error('Todo planner is not configured.');
+        const { id, status, detail } = input as {
+          id: string;
+          status: TodoStatus;
+          detail?: string;
+        };
+        if (!['pending', 'in_progress', 'done', 'blocked'].includes(status)) {
+          throw new Error(`Unsupported todo status: ${status}`);
+        }
+        return { todos: context.planner.updateTodo(id, status, detail) };
+      },
+    });
+
+    registry.register({
+      name: 'todo_read',
+      description: 'Read the current visible todo plan.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      run: async (_input: unknown, context): Promise<TodoListResponse> => {
+        if (!context.planner) throw new Error('Todo planner is not configured.');
+        return { todos: context.planner.readTodos() };
       },
     });
   }

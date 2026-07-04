@@ -15,11 +15,13 @@ import type {
   SessionLogResponse,
   ToolDefinition,
   ToolResult,
+  TodoItem,
   WorkspaceFileNode,
   WorkspaceInfo,
 } from '@wac/shared';
 import { api, connectSessionEvents } from './api';
 import { countDiagnostics, formatDiagnosticTimestamp } from './features/diagnostics';
+import { TodoPanel } from './features/todo-panel';
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -32,6 +34,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
   const [shellCommand, setShellCommand] = useState('npm run typecheck');
   const [shellResult, setShellResult] = useState<ShellCommandResult | null>(null);
@@ -61,6 +64,7 @@ export default function App() {
       api.workspaceTree(),
       api.tools(),
       api.diagnostics(),
+      api.todos(),
     ])
       .then(
         ([
@@ -70,6 +74,7 @@ export default function App() {
           treeResult,
           toolResult,
           diagnosticsResult,
+          todoResult,
         ]) => {
           setHealth(healthResult);
           setModelProvider(providerResult.provider);
@@ -77,6 +82,7 @@ export default function App() {
           setTree(treeResult);
           setTools(toolResult.tools);
           setDiagnostics(diagnosticsResult);
+          setTodos(todoResult.todos);
           const first = findFirstFile(treeResult);
           if (first) {
             void openFile(first.path);
@@ -126,7 +132,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 12 Context Engine');
+    const result = await api.createSession('Phase 13 Todo Planner');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -175,7 +181,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 12 Context Engine')).session;
+      session ?? (await api.createSession('Phase 13 Todo Planner')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -290,7 +296,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 12 Context Engine')).session;
+        session ?? (await api.createSession('Phase 13 Todo Planner')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -313,7 +319,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 12 Context Engine')).session;
+        session ?? (await api.createSession('Phase 13 Todo Planner')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -322,6 +328,9 @@ export default function App() {
           if (event.type === 'agent.run_created') {
             setSession(event.session);
             setCurrentRunId(event.run.id);
+          }
+          if (event.type === 'agent.todo_updated') {
+            setTodos(event.todos);
           }
           if (event.type === 'agent.done' || event.type === 'agent.error') {
             setAgentRunning(false);
@@ -362,7 +371,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 12 Context Engine')).session;
+        session ?? (await api.createSession('Phase 13 Todo Planner')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -414,7 +423,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 12</p>
+          <p className="eyebrow">Phase 13</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -492,7 +501,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Context Engine 会在每次模型调用前生成受预算控制的上下文摘要。</p>
+            <p>Todo Planner 会把 Agent 的当前步骤显式显示为任务状态机。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -579,6 +588,10 @@ export default function App() {
                 ? latestContextSummary.taskSummary
                 : '运行 Agent Loop 后会显示本轮模型调用前的 context summary。'}
             </div>
+          </div>
+          <div className="planner-box">
+            <div className="todo-title">Todo Planner</div>
+            <TodoPanel todos={todos} />
           </div>
           <div className="repair-box">
             <div className="todo-title">Self-Repair Loop</div>
@@ -789,6 +802,10 @@ export default function App() {
                 ) ?? 0}
               </strong>
             </div>
+            <div className="state-row">
+              <span>Todos</span>
+              <strong>{todos.length}</strong>
+            </div>
             <button
               className="secondary-action"
               type="button"
@@ -846,6 +863,7 @@ export default function App() {
               <li className={modelProvider ? 'done' : ''}>Model Provider Integration</li>
               <li className={diagnostics ? 'done' : ''}>LSP Diagnostics</li>
               <li className={latestContextSummary ? 'done' : ''}>Context Engine</li>
+              <li className={todos.length > 0 ? 'done' : ''}>Todo Planner</li>
             </ul>
           </div>
         </aside>
@@ -853,7 +871,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 12 和 Phase 16 扩展</small>
+            <small>Phase 13 和 Phase 16 扩展</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -1000,6 +1018,8 @@ function formatAgentEvent(event: AgentRunEvent): string {
       return `agent.iteration ${event.iteration}/${event.maxIterations}`;
     case 'agent.context_summary':
       return `context_summary budget=${event.summary.budget.usedChars}/${event.summary.budget.maxChars} files=${event.summary.relevantFiles.length} diagnostics=${event.summary.diagnostics.length} truncated=${event.summary.budget.truncated}`;
+    case 'agent.todo_updated':
+      return `todo_updated ${event.reason} active=${event.todos.find((todo) => todo.status === 'in_progress')?.title ?? 'none'}`;
     case 'agent.model_call':
       return `model_call ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`;
     case 'agent.message':

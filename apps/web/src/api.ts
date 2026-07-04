@@ -2,6 +2,10 @@ import type {
   AgentShellEvent,
   CreateAgentSessionResponse,
   HealthResponse,
+  ReadWorkspaceFileResponse,
+  SearchTextResponse,
+  WorkspaceFileNode,
+  WorkspaceInfo,
 } from '@wac/shared';
 
 async function json<T>(res: Response): Promise<T> {
@@ -11,6 +15,14 @@ async function json<T>(res: Response): Promise<T> {
 
 export const api = {
   health: () => fetch('/api/health').then(json<HealthResponse>),
+  workspace: () => fetch('/api/workspace').then(json<WorkspaceInfo>),
+  workspaceTree: () => fetch('/api/workspace/tree').then(json<WorkspaceFileNode>),
+  readWorkspaceFile: (path: string) =>
+    fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`).then(
+      json<ReadWorkspaceFileResponse>,
+    ),
+  searchWorkspace: (query: string) =>
+    fetch(`/api/workspace/search?q=${encodeURIComponent(query)}`).then(json<SearchTextResponse>),
   createSession: (title?: string) =>
     fetch('/api/sessions', {
       method: 'POST',

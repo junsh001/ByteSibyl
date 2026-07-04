@@ -5,6 +5,7 @@ import type {
   AgentSession,
   AgentShellEvent,
   ApprovalRequest,
+  DiagnosticsResponse,
   HealthResponse,
   ModelProviderInfo,
   PatchProposal,
@@ -18,12 +19,15 @@ import type {
   WorkspaceInfo,
 } from '@wac/shared';
 import { api, connectSessionEvents } from './api';
+import { countDiagnostics, formatDiagnosticTimestamp } from './features/diagnostics';
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [modelProvider, setModelProvider] = useState<ModelProviderInfo | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [tree, setTree] = useState<WorkspaceFileNode | null>(null);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
@@ -39,7 +43,7 @@ export default function App() {
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
-  const [agentPrompt, setAgentPrompt] = useState('查找 formatUser 并读取相关文件');
+  const [agentPrompt, setAgentPrompt] = useState('获取 TypeScript diagnostics 并说明当前类型错误');
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
@@ -56,18 +60,29 @@ export default function App() {
       api.workspace(),
       api.workspaceTree(),
       api.tools(),
+      api.diagnostics(),
     ])
-      .then(([healthResult, providerResult, workspaceResult, treeResult, toolResult]) => {
-        setHealth(healthResult);
-        setModelProvider(providerResult.provider);
-        setWorkspace(workspaceResult);
-        setTree(treeResult);
-        setTools(toolResult.tools);
-        const first = findFirstFile(treeResult);
-        if (first) {
-          void openFile(first.path);
-        }
-      })
+      .then(
+        ([
+          healthResult,
+          providerResult,
+          workspaceResult,
+          treeResult,
+          toolResult,
+          diagnosticsResult,
+        ]) => {
+          setHealth(healthResult);
+          setModelProvider(providerResult.provider);
+          setWorkspace(workspaceResult);
+          setTree(treeResult);
+          setTools(toolResult.tools);
+          setDiagnostics(diagnosticsResult);
+          const first = findFirstFile(treeResult);
+          if (first) {
+            void openFile(first.path);
+          }
+        },
+      )
       .catch((err: Error) => setError(err.message));
   }, []);
 
@@ -99,7 +114,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 10 Model Provider Integration');
+    const result = await api.createSession('Phase 11 LSP Diagnostics');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -110,6 +125,18 @@ export default function App() {
     const result = await api.sessionLog(targetSession.id);
     setSession(result.session);
     setSessionLog(result);
+  }
+
+  async function refreshDiagnostics() {
+    setError(null);
+    setDiagnosticsLoading(true);
+    try {
+      setDiagnostics(await api.diagnostics());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDiagnosticsLoading(false);
+    }
   }
 
   async function openFile(path: string) {
@@ -136,7 +163,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
+      session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -220,6 +247,7 @@ export default function App() {
       }
       await refreshSessionLog();
       setTree(await api.workspaceTree());
+      await refreshDiagnostics();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -250,7 +278,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
+        session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -273,7 +301,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
+        session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -322,7 +350,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 10 Model Provider Integration')).session;
+        session ?? (await api.createSession('Phase 11 LSP Diagnostics')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -341,6 +369,7 @@ export default function App() {
         }
       }
       await refreshSessionLog(result.session);
+      await refreshDiagnostics();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -361,6 +390,7 @@ export default function App() {
       setShellResult(result.commandResult);
       setRepairAttempt(result.repair);
       await refreshSessionLog(session);
+      await refreshDiagnostics();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -372,7 +402,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 10</p>
+          <p className="eyebrow">Phase 11</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -450,7 +480,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>模型只能提出结构化工具调用，文件写入和命令执行仍受 guardrails 约束。</p>
+            <p>Agent 可以把 TypeScript diagnostics 当作结构化 observation。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -468,6 +498,50 @@ export default function App() {
             </div>
             <div className="repair-message">
               {modelProvider?.message ?? '正在读取 Server 端 provider 配置。'}
+            </div>
+          </div>
+          <div className="diagnostics-box">
+            <div className="diagnostics-header">
+              <div>
+                <div className="todo-title">LSP Diagnostics</div>
+                <small>
+                  {diagnostics?.generatedAt
+                    ? formatDiagnosticTimestamp(diagnostics.generatedAt)
+                    : 'loading'}
+                </small>
+              </div>
+              <button type="button" disabled={diagnosticsLoading} onClick={() => void refreshDiagnostics()}>
+                {diagnosticsLoading ? '刷新中' : '刷新'}
+              </button>
+            </div>
+            <div className="state-row">
+              <span>Errors</span>
+              <strong>{countDiagnostics(diagnostics?.diagnostics ?? [], 'error')}</strong>
+            </div>
+            <div className="state-row">
+              <span>Total</span>
+              <strong>{diagnostics?.diagnostics.length ?? 0}</strong>
+            </div>
+            <div className="diagnostic-list">
+              {(diagnostics?.diagnostics ?? []).length === 0 ? (
+                <div className="diagnostic-empty">当前 workspace 没有 TypeScript diagnostics。</div>
+              ) : (
+                diagnostics?.diagnostics.slice(0, 8).map((diagnostic) => (
+                  <button
+                    type="button"
+                    key={`${diagnostic.path}:${diagnostic.line}:${diagnostic.column}:${diagnostic.message}`}
+                    onClick={() => void openFile(diagnostic.path)}
+                  >
+                    <span className={`diagnostic-severity ${diagnostic.severity}`}>
+                      {diagnostic.severity}
+                    </span>
+                    <strong>
+                      {diagnostic.path}:{diagnostic.line}:{diagnostic.column}
+                    </strong>
+                    <span>{diagnostic.message}</span>
+                  </button>
+                ))
+              )}
             </div>
           </div>
           <div className="repair-box">
@@ -724,6 +798,7 @@ export default function App() {
               <li className={shellResult ? 'done' : ''}>安全 Shell Runner</li>
               <li className={repairAttempt ? 'done' : ''}>测试失败后的自修复循环</li>
               <li className={modelProvider ? 'done' : ''}>Model Provider Integration</li>
+              <li className={diagnostics ? 'done' : ''}>LSP Diagnostics</li>
             </ul>
           </div>
         </aside>
@@ -731,7 +806,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 10 和 Phase 16 扩展</small>
+            <small>Phase 11 和 Phase 16 扩展</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}

@@ -17,7 +17,9 @@ import {
   type SessionId,
 } from '@wac/shared';
 import { config } from './config.js';
+import { createDiagnosticsProvider } from './lsp/index.js';
 import { registerAgentRoutes } from './routes/agent.js';
+import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
 import { registerPatchRoutes } from './routes/patches.js';
 import { registerSelfRepairRoutes } from './routes/self-repair.js';
 import { registerShellRoutes } from './routes/shell.js';
@@ -28,8 +30,9 @@ const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
 const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
-const toolRegistry = createWorkspaceToolRegistry();
-const toolRunner = new ToolRunner(toolRegistry, { workspace, trace: [] });
+const diagnostics = createDiagnosticsProvider(config.workspaceRoot);
+const toolRegistry = createWorkspaceToolRegistry({ diagnostics: true });
+const toolRunner = new ToolRunner(toolRegistry, { workspace, diagnostics, trace: [] });
 const model = createModelProvider({
   provider: config.modelProvider,
   apiKey: config.modelApiKey,
@@ -42,6 +45,7 @@ const app = Fastify({ logger: { level: 'info' }, bodyLimit: 10 * 1024 * 1024 });
 await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
+await registerDiagnosticsRoutes(app, diagnostics, workspace.root);
 await registerAgentRoutes(app, { model, toolRegistry, toolRunner, sessionStore });
 await registerPatchRoutes(app, { workspace, sessionStore });
 await registerShellRoutes(app, { shellRunner, sessionStore });
@@ -50,7 +54,7 @@ await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-10-model-provider-integration',
+  phase: 'phase-11-lsp-diagnostics',
   timestamp: new Date().toISOString(),
 }));
 

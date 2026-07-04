@@ -22,7 +22,8 @@ export interface HealthResponse {
     | 'phase-07-permission-approval-guardrails'
     | 'phase-08-shell-runner'
     | 'phase-09-self-repair-loop'
-    | 'phase-10-model-provider-integration';
+    | 'phase-10-model-provider-integration'
+    | 'phase-11-lsp-diagnostics';
   timestamp: string;
 }
 
@@ -127,6 +128,26 @@ export interface SearchTextMatch {
 export interface SearchTextResponse {
   query: string;
   matches: SearchTextMatch[];
+}
+
+export type DiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
+
+export interface WorkspaceDiagnostic {
+  path: string;
+  line: number;
+  column: number;
+  endLine?: number;
+  endColumn?: number;
+  message: string;
+  severity: DiagnosticSeverity;
+  code?: string;
+  source: string;
+}
+
+export interface DiagnosticsResponse {
+  diagnostics: WorkspaceDiagnostic[];
+  generatedAt: string;
+  workspaceRoot: string;
 }
 
 export type PatchProposalId = string;

@@ -4,11 +4,18 @@ import type {
   ToolDefinition,
   ToolPermission,
   ToolResult,
+  DiagnosticsResponse,
+  WorkspaceDiagnostic,
 } from '@wac/shared';
 import type { WorkspaceService } from '@wac/workspace';
 
+export interface DiagnosticsProvider {
+  getDiagnostics(): Promise<WorkspaceDiagnostic[]>;
+}
+
 export interface ToolContext {
   workspace: WorkspaceService;
+  diagnostics?: DiagnosticsProvider;
   trace?: ToolCallTrace[];
 }
 
@@ -119,7 +126,11 @@ export class ToolRunner {
   }
 }
 
-export function createWorkspaceToolRegistry(): ToolRegistry {
+export interface WorkspaceToolRegistryOptions {
+  diagnostics?: boolean;
+}
+
+export function createWorkspaceToolRegistry(options: WorkspaceToolRegistryOptions = {}): ToolRegistry {
   const registry = new ToolRegistry();
 
   registry.register({
@@ -176,6 +187,30 @@ export function createWorkspaceToolRegistry(): ToolRegistry {
       };
     },
   });
+
+  if (options.diagnostics) {
+    registry.register({
+      name: 'get_diagnostics',
+      description: 'Return TypeScript diagnostics for the current workspace.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      run: async (_input: unknown, context): Promise<DiagnosticsResponse> => {
+        if (!context.diagnostics) {
+          throw new Error('Diagnostics provider is not configured.');
+        }
+        return {
+          diagnostics: await context.diagnostics.getDiagnostics(),
+          generatedAt: new Date().toISOString(),
+          workspaceRoot: context.workspace.root,
+        };
+      },
+    });
+  }
 
   return registry;
 }

@@ -6,6 +6,7 @@
     { "path": "./packages/workspace" },
     { "path": "./packages/tool-system" },
     { "path": "./packages/model-provider" },
+    { "path": "./packages/lsp-client" },
     { "path": "./packages/agent-core" },
     { "path": "./packages/patch-engine" },
     { "path": "./packages/permission" },

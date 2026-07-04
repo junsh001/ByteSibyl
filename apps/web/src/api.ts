@@ -1,4 +1,6 @@
 import type {
+  AgentRunEvent,
+  AgentRunRequest,
   AgentShellEvent,
   CreateAgentSessionResponse,
   HealthResponse,
@@ -33,6 +35,8 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     }).then(json<ToolResult>),
+  runAgent: (request: AgentRunRequest, onEvent: (event: AgentRunEvent) => void) =>
+    streamSse('/api/agent/run', request, onEvent),
   createSession: (title?: string) =>
     fetch('/api/sessions', {
       method: 'POST',
@@ -58,4 +62,41 @@ export function connectSessionEvents(
     source.close();
   };
   return () => source.close();
+}
+
+function streamSse<TEvent>(
+  url: string,
+  body: unknown,
+  onEvent: (event: TEvent) => void,
+): () => void {
+  const controller = new AbortController();
+  void (async () => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok || !res.body) {
+      throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() ?? '';
+      for (const frame of frames) {
+        const line = frame.trim();
+        if (!line.startsWith('data:')) continue;
+        onEvent(JSON.parse(line.slice(5).trim()) as TEvent);
+      }
+    }
+  })();
+
+  return () => controller.abort();
 }

@@ -15,7 +15,8 @@ export interface HealthResponse {
   phase:
     | 'phase-01-web-server-shell'
     | 'phase-02-workspace-filesystem'
-    | 'phase-03-tool-system';
+    | 'phase-03-tool-system'
+    | 'phase-04-agent-loop';
   timestamp: string;
 }
 
@@ -113,6 +114,63 @@ export interface ToolListResponse {
   tools: ToolDefinition[];
 }
 
+export type ModelMessageRole = 'system' | 'user' | 'assistant' | 'tool';
+
+export interface ModelMessage {
+  role: ModelMessageRole;
+  content: string;
+  toolName?: string;
+}
+
+export interface ModelRequest {
+  messages: ModelMessage[];
+  tools: ToolDefinition[];
+}
+
+export interface ModelResponse {
+  content?: string;
+  toolCalls?: ToolCallRequest[];
+  final?: boolean;
+}
+
+export interface AgentRunRequest {
+  message: string;
+  maxIterations?: number;
+}
+
+export type AgentRunEvent =
+  | {
+      type: 'agent.status';
+      status: 'running' | 'completed' | 'failed';
+      message: string;
+    }
+  | {
+      type: 'agent.iteration';
+      iteration: number;
+      maxIterations: number;
+    }
+  | {
+      type: 'agent.message';
+      role: 'assistant';
+      content: string;
+    }
+  | {
+      type: 'agent.tool_call';
+      call: ToolCallRequest;
+    }
+  | {
+      type: 'agent.tool_result';
+      result: ToolResult;
+    }
+  | {
+      type: 'agent.error';
+      message: string;
+    }
+  | {
+      type: 'agent.done';
+      finishReason: 'final' | 'stop' | 'max_iterations' | 'error';
+    };
+
 export type AgentShellEvent =
   | {
       type: 'session.created';
@@ -145,18 +203,6 @@ export interface PlanStep {
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
-}
-
-export interface AgentRunRequest {
-  projectId: string;
-  /** The user's instruction for this turn. */
-  message: string;
-  /** Prior conversation (excluding the new message). */
-  history?: ChatMessage[];
-  /** Use the reasoning model for harder tasks. */
-  reasoning?: boolean;
-  /** Optional: restrict the agent to plan-only (no file writes / no run). */
-  mode?: 'agent' | 'ask';
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +266,6 @@ export type Locale = 'zh' | 'en';
 // ---------------------------------------------------------------------------
 
 /** Serialize a server event as an SSE frame. */
-export function sseFrame(event: AgentShellEvent): string {
+export function sseFrame(event: AgentShellEvent | AgentRunEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }

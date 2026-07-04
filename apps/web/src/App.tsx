@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
+  AgentRunEvent,
   AgentSession,
   AgentShellEvent,
   HealthResponse,
@@ -20,6 +21,9 @@ export default function App() {
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState('查找 formatUser 并读取相关文件');
+  const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
+  const [agentRunning, setAgentRunning] = useState(false);
   const [session, setSession] = useState<AgentSession | null>(null);
   const [events, setEvents] = useState<AgentShellEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -86,11 +90,28 @@ export default function App() {
     setToolResult(result);
   }
 
+  function runAgent() {
+    setError(null);
+    setAgentEvents([]);
+    setAgentRunning(true);
+    try {
+      api.runAgent({ message: agentPrompt, maxIterations: 6 }, (event) => {
+        setAgentEvents((current) => [...current, event]);
+        if (event.type === 'agent.done' || event.type === 'agent.error') {
+          setAgentRunning(false);
+        }
+      });
+    } catch (err) {
+      setAgentRunning(false);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 2</p>
+          <p className="eyebrow">Phase 4</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -167,8 +188,25 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>Agent Loop 将在 Phase 4 接入。</p>
-            <p>当前阶段先把 workspace 能力注册为结构化只读工具。</p>
+            <p>当前使用 mock model provider 演示最小 Agent Loop。</p>
+            <p>模型会提出工具调用，Tool Runner 执行后把 observation 送回循环。</p>
+          </div>
+          <div className="agent-run-box">
+            <label htmlFor="agent-prompt">Agent Task</label>
+            <textarea
+              id="agent-prompt"
+              value={agentPrompt}
+              onChange={(event) => setAgentPrompt(event.target.value)}
+              rows={3}
+            />
+            <button
+              className="primary-action compact"
+              type="button"
+              disabled={agentRunning}
+              onClick={runAgent}
+            >
+              {agentRunning ? '运行中...' : '运行最小 Agent Loop'}
+            </button>
           </div>
           <div className="tool-box">
             <div className="todo-title">Tool System</div>
@@ -202,6 +240,9 @@ export default function App() {
               <li className={selectedFile ? 'done' : ''}>读取文件内容</li>
               <li className={searchMatches.length > 0 ? 'done' : ''}>搜索文本</li>
               <li className={tools.length > 0 ? 'done' : ''}>注册结构化工具</li>
+              <li className={agentEvents.some((event) => event.type === 'agent.done') ? 'done' : ''}>
+                最小 Agent Loop
+              </li>
             </ul>
           </div>
         </aside>
@@ -214,7 +255,7 @@ export default function App() {
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
             {events.length === 0 ? (
-              <div className="log-line muted">等待 session 事件...</div>
+              <div className="log-line muted">等待 session 或 agent 事件...</div>
             ) : (
               events.map((event, index) => (
                 <div className="log-line" key={`${event.type}-${index}`}>
@@ -224,6 +265,11 @@ export default function App() {
                 </div>
               ))
             )}
+            {agentEvents.map((event, index) => (
+              <div className="log-line" key={`agent-${index}`}>
+                {formatAgentEvent(event)}
+              </div>
+            ))}
           </div>
         </section>
       </main>
@@ -291,4 +337,23 @@ function findFirstFile(node: WorkspaceFileNode): WorkspaceFileNode | null {
 function countFiles(node: WorkspaceFileNode): number {
   if (node.type === 'file') return 1;
   return (node.children ?? []).reduce((total, child) => total + countFiles(child), 0);
+}
+
+function formatAgentEvent(event: AgentRunEvent): string {
+  switch (event.type) {
+    case 'agent.status':
+      return `agent.status ${event.message}`;
+    case 'agent.iteration':
+      return `agent.iteration ${event.iteration}/${event.maxIterations}`;
+    case 'agent.message':
+      return `assistant ${event.content}`;
+    case 'agent.tool_call':
+      return `tool_call ${event.call.name} ${JSON.stringify(event.call.input)}`;
+    case 'agent.tool_result':
+      return `tool_result ${event.result.name} ok=${event.result.ok}`;
+    case 'agent.error':
+      return `agent.error ${event.message}`;
+    case 'agent.done':
+      return `agent.done ${event.finishReason}`;
+  }
 }

@@ -5,6 +5,8 @@
     { "path": "./packages/shared" },
     { "path": "./packages/workspace" },
     { "path": "./packages/tool-system" },
+    { "path": "./packages/model-provider" },
+    { "path": "./packages/agent-core" },
     { "path": "./apps/server" },
     { "path": "./apps/web" }
   ]

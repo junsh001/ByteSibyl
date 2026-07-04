@@ -10,6 +10,9 @@ import type {
   AgentRunStepType,
   AgentSession,
   AgentSessionStatus,
+  ApprovalRequest,
+  ApprovalRequestId,
+  ApprovalStatus,
   PatchProposal,
   PatchProposalId,
   PatchProposalStatus,
@@ -21,12 +24,14 @@ interface SessionStoreSnapshot {
   sessions: AgentSession[];
   runs: AgentRunRecord[];
   patches?: PatchProposal[];
+  approvals?: ApprovalRequest[];
 }
 
 export class SessionStore {
   private readonly sessions = new Map<SessionId, AgentSession>();
   private readonly runs = new Map<AgentRunId, AgentRunRecord>();
   private readonly patches = new Map<PatchProposalId, PatchProposal>();
+  private readonly approvals = new Map<ApprovalRequestId, ApprovalRequest>();
 
   constructor(private readonly filePath: string) {}
 
@@ -37,9 +42,11 @@ export class SessionStore {
       this.sessions.clear();
       this.runs.clear();
       this.patches.clear();
+      this.approvals.clear();
       for (const session of snapshot.sessions ?? []) this.sessions.set(session.id, session);
       for (const run of snapshot.runs ?? []) this.runs.set(run.id, run);
       for (const patch of snapshot.patches ?? []) this.patches.set(patch.id, patch);
+      for (const approval of snapshot.approvals ?? []) this.approvals.set(approval.id, approval);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -59,6 +66,22 @@ export class SessionStore {
 
   getPatch(id: PatchProposalId): PatchProposal | undefined {
     return this.patches.get(id);
+  }
+
+  getApproval(id: ApprovalRequestId): ApprovalRequest | undefined {
+    return this.approvals.get(id);
+  }
+
+  findPendingApprovalForSubject(subjectId: string): ApprovalRequest | undefined {
+    return [...this.approvals.values()].find(
+      (approval) => approval.subjectId === subjectId && approval.status === 'pending',
+    );
+  }
+
+  findApprovedApprovalForSubject(subjectId: string): ApprovalRequest | undefined {
+    return [...this.approvals.values()].find(
+      (approval) => approval.subjectId === subjectId && approval.status === 'approved',
+    );
   }
 
   async createSession(title?: string): Promise<AgentSession> {
@@ -163,6 +186,38 @@ export class SessionStore {
     return updated;
   }
 
+  async createApprovalRequest(
+    request: Omit<ApprovalRequest, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<ApprovalRequest> {
+    const now = new Date().toISOString();
+    const approval: ApprovalRequest = {
+      ...request,
+      id: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.approvals.set(approval.id, approval);
+    await this.save();
+    return approval;
+  }
+
+  async updateApprovalStatus(
+    id: ApprovalRequestId,
+    status: ApprovalStatus,
+  ): Promise<ApprovalRequest> {
+    const approval = this.requireApproval(id);
+    const now = new Date().toISOString();
+    const updated: ApprovalRequest = {
+      ...approval,
+      status,
+      updatedAt: now,
+      decidedAt: status === 'pending' ? approval.decidedAt : now,
+    };
+    this.approvals.set(id, updated);
+    await this.save();
+    return updated;
+  }
+
   getSessionLog(sessionId: SessionId): SessionLogResponse {
     const session = this.requireSession(sessionId);
     const runs = [...this.runs.values()]
@@ -171,7 +226,10 @@ export class SessionStore {
     const patches = [...this.patches.values()]
       .filter((patch) => patch.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { session, runs, patches };
+    const approvals = [...this.approvals.values()]
+      .filter((approval) => approval.sessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { session, runs, patches, approvals };
   }
 
   private requireSession(id: SessionId): AgentSession {
@@ -192,11 +250,20 @@ export class SessionStore {
     return patch;
   }
 
+  private requireApproval(id: ApprovalRequestId): ApprovalRequest {
+    const approval = this.approvals.get(id);
+    if (!approval) throw new Error(`approval not found: ${id}`);
+    return approval;
+  }
+
   private async save(): Promise<void> {
     const snapshot: SessionStoreSnapshot = {
       sessions: this.listSessions(),
       runs: [...this.runs.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
       patches: [...this.patches.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      approvals: [...this.approvals.values()].sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      ),
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;

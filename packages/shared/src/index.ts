@@ -18,7 +18,8 @@ export interface HealthResponse {
     | 'phase-03-tool-system'
     | 'phase-04-agent-loop'
     | 'phase-05-session-state'
-    | 'phase-06-patch-engine';
+    | 'phase-06-patch-engine'
+    | 'phase-07-permission-approval-guardrails';
   timestamp: string;
 }
 
@@ -91,6 +92,7 @@ export interface SessionLogResponse {
   session: AgentSession;
   runs: AgentRunRecord[];
   patches: PatchProposal[];
+  approvals: ApprovalRequest[];
 }
 
 export interface WorkspaceFileNode {
@@ -123,7 +125,14 @@ export interface SearchTextResponse {
 
 export type PatchProposalId = string;
 
-export type PatchProposalStatus = 'proposed' | 'discarded';
+export type PatchProposalStatus =
+  | 'proposed'
+  | 'waiting_approval'
+  | 'approved'
+  | 'rejected'
+  | 'applied'
+  | 'discarded'
+  | 'blocked';
 
 export type PatchLineType = 'context' | 'add' | 'remove';
 
@@ -153,6 +162,7 @@ export interface PatchProposal {
   newLineCount: number;
   hunks: PatchHunk[];
   unifiedDiff: string;
+  updatedContent?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -165,6 +175,61 @@ export interface CreatePatchPreviewRequest {
 
 export interface CreatePatchPreviewResponse {
   proposal: PatchProposal;
+}
+
+export type PermissionActionKind = 'read_workspace' | 'preview_patch' | 'apply_patch' | 'execute_command';
+
+export type PermissionDecisionEffect = 'allow' | 'approval_required' | 'deny';
+
+export interface GuardrailViolation {
+  code: string;
+  message: string;
+}
+
+export interface PermissionDecision {
+  effect: PermissionDecisionEffect;
+  action: PermissionActionKind;
+  permission: ToolPermission;
+  reason: string;
+  violations: GuardrailViolation[];
+}
+
+export type ApprovalRequestId = string;
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface ApprovalRequest {
+  id: ApprovalRequestId;
+  sessionId: SessionId;
+  action: PermissionActionKind;
+  subjectId: string;
+  permission: ToolPermission;
+  status: ApprovalStatus;
+  reason: string;
+  decision?: PermissionDecision;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string;
+}
+
+export interface RequestPatchApprovalResponse {
+  proposal: PatchProposal;
+  approval?: ApprovalRequest;
+  decision: PermissionDecision;
+}
+
+export interface DecideApprovalRequest {
+  note?: string;
+}
+
+export interface DecidePatchApprovalResponse {
+  proposal: PatchProposal;
+  approval: ApprovalRequest;
+}
+
+export interface ApplyPatchResponse {
+  proposal: PatchProposal;
+  content: string;
 }
 
 export type JsonSchemaType = 'object' | 'string' | 'number' | 'boolean' | 'array';

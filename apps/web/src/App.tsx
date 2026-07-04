@@ -4,6 +4,7 @@ import type {
   AgentRunEvent,
   AgentSession,
   AgentShellEvent,
+  ApprovalRequest,
   HealthResponse,
   PatchProposal,
   SearchTextMatch,
@@ -26,6 +27,7 @@ export default function App() {
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [agentPrompt, setAgentPrompt] = useState('查找 formatUser 并读取相关文件');
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
@@ -65,9 +67,21 @@ export default function App() {
     return `${session.title} · ${session.status} · ${session.id.slice(0, 8)}`;
   }, [session]);
 
+  const patchFlowHint = useMemo(() => {
+    if (!selectedFile) return '先在左侧选择文件。';
+    if (!patchProposal) return '可以直接生成 Diff Preview，或请求审批时自动生成。';
+    if (patchProposal.status === 'blocked') return 'Guardrails 已拦截该 Patch。';
+    if (patchProposal.status === 'waiting_approval') return '等待批准或拒绝。';
+    if (patchProposal.status === 'approved') return '已批准，可以应用 Patch。';
+    if (patchProposal.status === 'applied') return 'Patch 已应用到 workspace 文件。';
+    if (patchProposal.status === 'rejected') return '审批已拒绝，请重新生成 Patch Proposal。';
+    if (patchProposal.status === 'discarded') return 'Patch Proposal 已丢弃，请重新生成。';
+    return 'Patch Proposal 已生成，可以请求审批。';
+  }, [patchProposal, selectedFile]);
+
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 6 Patch Preview');
+    const result = await api.createSession('Phase 7 Approval Flow');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -86,24 +100,32 @@ export default function App() {
     setSelectedFile(result);
     setPatchDraft(result.content);
     setPatchProposal(null);
+    setApproval(null);
   }
 
   async function createPatchPreview() {
     if (!selectedFile) return;
     setError(null);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 6 Patch Preview')).session;
-      setSession(activeSession);
-      const result = await api.createPatchPreview({
-        sessionId: activeSession.id,
-        path: selectedFile.path,
-        updatedContent: patchDraft,
-      });
+      const result = await createPatchPreviewForSelectedFile();
       setPatchProposal(result.proposal);
-      await refreshSessionLog(activeSession);
+      setApproval(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  async function createPatchPreviewForSelectedFile() {
+    if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
+    const activeSession = session ?? (await api.createSession('Phase 7 Approval Flow')).session;
+    setSession(activeSession);
+    const result = await api.createPatchPreview({
+      sessionId: activeSession.id,
+      path: selectedFile.path,
+      updatedContent: patchDraft,
+    });
+    await refreshSessionLog(activeSession);
+    return result;
   }
 
   async function discardPatch() {
@@ -112,7 +134,73 @@ export default function App() {
     try {
       const result = await api.discardPatch(patchProposal.id);
       setPatchProposal(result.proposal);
+      setApproval(null);
       await refreshSessionLog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function requestPatchApproval() {
+    if (!selectedFile) return;
+    setError(null);
+    try {
+      const proposal =
+        patchProposal && ['proposed', 'blocked'].includes(patchProposal.status)
+          ? patchProposal
+          : (await createPatchPreviewForSelectedFile()).proposal;
+      setPatchProposal(proposal);
+      const result = await api.requestPatchApproval(proposal.id);
+      setPatchProposal(result.proposal);
+      setApproval(result.approval ?? null);
+      if (result.decision.effect === 'deny') {
+        const message = result.decision.violations.map((violation) => violation.message).join(' ');
+        setError(message || result.decision.reason);
+      }
+      await refreshSessionLog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function approvePatch() {
+    if (!approval) return;
+    setError(null);
+    try {
+      const result = await api.approvePatch(approval.id);
+      setPatchProposal(result.proposal);
+      setApproval(result.approval);
+      await refreshSessionLog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function rejectPatch() {
+    if (!approval) return;
+    setError(null);
+    try {
+      const result = await api.rejectPatch(approval.id);
+      setPatchProposal(result.proposal);
+      setApproval(result.approval);
+      await refreshSessionLog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function applyPatch() {
+    if (!patchProposal) return;
+    setError(null);
+    try {
+      const result = await api.applyPatch(patchProposal.id);
+      setPatchProposal(result.proposal);
+      setPatchDraft(result.content);
+      if (selectedFile?.path === result.proposal.path) {
+        setSelectedFile({ path: result.proposal.path, content: result.content });
+      }
+      await refreshSessionLog();
+      setTree(await api.workspaceTree());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -144,7 +232,7 @@ export default function App() {
     setAgentRunning(true);
     setCurrentRunId(null);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 6 Patch Preview')).session;
+      const activeSession = session ?? (await api.createSession('Phase 7 Approval Flow')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -192,7 +280,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 6</p>
+          <p className="eyebrow">Phase 7</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -269,8 +357,8 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>Patch Engine 会基于当前文件和草稿内容生成 proposed diff。</p>
-            <p>Phase 6 只做 Diff Preview 和 patch history，不写入文件。</p>
+            <p>Patch 写入必须先通过 Guardrails，再进入 Human-in-the-loop approval。</p>
+            <p>批准后才能应用 Patch；命令执行仍留到 Phase 8。</p>
           </div>
           <div className="patch-box">
             <div className="todo-title">Patch Draft</div>
@@ -292,11 +380,57 @@ export default function App() {
             <button
               className="secondary-action"
               type="button"
-              disabled={!patchProposal || patchProposal.status === 'discarded'}
+              disabled={
+                !patchProposal ||
+                ['discarded', 'applied', 'approved', 'waiting_approval'].includes(
+                  patchProposal.status,
+                )
+              }
               onClick={() => void discardPatch()}
             >
               丢弃 Patch Proposal
             </button>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={!selectedFile}
+              onClick={() => void requestPatchApproval()}
+            >
+              请求审批
+            </button>
+            <div className="approval-actions">
+              <button
+                type="button"
+                disabled={!approval || approval.status !== 'pending'}
+                onClick={() => void approvePatch()}
+              >
+                批准
+              </button>
+              <button
+                type="button"
+                disabled={!approval || approval.status !== 'pending'}
+                onClick={() => void rejectPatch()}
+              >
+                拒绝
+              </button>
+            </div>
+            <button
+              className="primary-action compact"
+              type="button"
+              disabled={!patchProposal || patchProposal.status !== 'approved'}
+              onClick={() => void applyPatch()}
+            >
+              应用已批准 Patch
+            </button>
+            <div className="state-row">
+              <span>Patch</span>
+              <strong>{patchProposal?.status ?? 'none'}</strong>
+            </div>
+            <div className="state-row">
+              <span>Approval</span>
+              <strong>{approval?.status ?? 'none'}</strong>
+            </div>
+            <div className="patch-flow-hint">{patchFlowHint}</div>
           </div>
           <div className="agent-run-box">
             <label htmlFor="agent-prompt">Agent Task</label>
@@ -340,6 +474,10 @@ export default function App() {
             <div className="state-row">
               <span>Patch proposals</span>
               <strong>{sessionLog?.patches.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Approvals</span>
+              <strong>{sessionLog?.approvals.length ?? 0}</strong>
             </div>
             <button
               className="secondary-action"
@@ -389,6 +527,10 @@ export default function App() {
                 持久化 Session Step Log
               </li>
               <li className={patchProposal ? 'done' : ''}>生成 Diff Preview</li>
+              <li className={approval ? 'done' : ''}>Human-in-the-loop Approval</li>
+              <li className={patchProposal?.status === 'applied' ? 'done' : ''}>
+                应用已批准 Patch
+              </li>
             </ul>
           </div>
         </aside>
@@ -427,6 +569,11 @@ export default function App() {
               <div className="log-line muted" key={patch.id}>
                 patch {patch.id.slice(0, 8)} {patch.status} {patch.path} +{patch.additions} -
                 {patch.deletions}
+              </div>
+            ))}
+            {sessionLog?.approvals.slice(-5).map((item) => (
+              <div className="log-line muted" key={item.id}>
+                approval {item.id.slice(0, 8)} {item.status} {item.action} {item.subjectId.slice(0, 8)}
               </div>
             ))}
           </div>

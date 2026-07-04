@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { relative, resolve, sep } from 'node:path';
 import type { SearchTextMatch, WorkspaceFileNode } from '@wac/shared';
 
@@ -61,6 +61,15 @@ export class WorkspaceService {
       throw new Error(`File is too large to read in Phase 2: ${path}`);
     }
     return readFile(absolute, 'utf8');
+  }
+
+  async writeTextFile(path: string, content: string): Promise<void> {
+    const absolute = this.resolveInside(path);
+    const fileStat = await stat(absolute);
+    if (!fileStat.isFile()) {
+      throw new Error(`Not a file: ${path}`);
+    }
+    await writeFile(absolute, content, 'utf8');
   }
 
   async searchText(query: string): Promise<SearchTextMatch[]> {

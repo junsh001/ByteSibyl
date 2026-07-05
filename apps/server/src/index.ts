@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { ContextEngine } from '@wac/context-engine';
+import { HookRegistry } from '@wac/hooks';
 import { createModelProvider } from '@wac/model-provider';
 import { TodoPlanner } from '@wac/planner';
 import { ShellRunner } from '@wac/shell-runner';
@@ -34,6 +35,7 @@ import { registerWorkspaceRoutes } from './routes/workspace.js';
 const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
 const skillRegistry = await SkillRegistry.loadFromDirectory(config.skillsRoot);
+const hooks = new HookRegistry();
 const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
 const planner = new TodoPlanner();
@@ -46,7 +48,13 @@ const contextEngine = new ContextEngine(
   { maxChars: config.contextBudgetChars },
 );
 const toolRegistry = createWorkspaceToolRegistry({ diagnostics: true, planner: true });
-const toolRunner = new ToolRunner(toolRegistry, { workspace, diagnostics, planner, trace: [] });
+const toolRunner = new ToolRunner(toolRegistry, {
+  workspace,
+  diagnostics,
+  planner,
+  hooks,
+  trace: [],
+});
 const model = createModelProvider({
   provider: config.modelProvider,
   apiKey: config.modelApiKey,
@@ -70,15 +78,16 @@ await registerAgentRoutes(app, {
   planner,
   skillRegistry,
   sessionStore,
+  hooks,
 });
-await registerPatchRoutes(app, { workspace, sessionStore });
-await registerShellRoutes(app, { shellRunner, sessionStore });
+await registerPatchRoutes(app, { workspace, hooks, sessionStore });
+await registerShellRoutes(app, { shellRunner, hooks, sessionStore });
 await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-14-skills',
+  phase: 'phase-15-hooks',
   timestamp: new Date().toISOString(),
 }));
 
@@ -89,6 +98,11 @@ app.get('/api/model-provider/status', async (): Promise<ModelProviderStatusRespo
 app.post('/api/sessions', async (req): Promise<CreateAgentSessionResponse> => {
   const body = (req.body ?? {}) as CreateAgentSessionRequest;
   const session = await sessionStore.createSession(body.title);
+  const hookResult = await hooks.onSessionStart({
+    sessionId: session.id,
+    subject: session.id,
+  });
+  await sessionStore.saveHookRecords(hookResult.records);
   return { session };
 });
 

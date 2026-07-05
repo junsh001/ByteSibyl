@@ -13,6 +13,7 @@ import type {
   ApprovalRequest,
   ApprovalRequestId,
   ApprovalStatus,
+  HookRecord,
   ModelCallRecord,
   PatchProposal,
   PatchProposalId,
@@ -31,6 +32,7 @@ interface SessionStoreSnapshot {
   commands?: ShellCommandResult[];
   repairs?: SelfRepairAttempt[];
   modelCalls?: ModelCallRecord[];
+  hooks?: HookRecord[];
 }
 
 export class SessionStore {
@@ -41,6 +43,7 @@ export class SessionStore {
   private readonly commands = new Map<string, ShellCommandResult>();
   private readonly repairs = new Map<string, SelfRepairAttempt>();
   private readonly modelCalls = new Map<string, ModelCallRecord>();
+  private readonly hooks = new Map<string, HookRecord>();
 
   constructor(private readonly filePath: string) {}
 
@@ -55,6 +58,7 @@ export class SessionStore {
       this.commands.clear();
       this.repairs.clear();
       this.modelCalls.clear();
+      this.hooks.clear();
       for (const session of snapshot.sessions ?? []) this.sessions.set(session.id, session);
       for (const run of snapshot.runs ?? []) this.runs.set(run.id, run);
       for (const patch of snapshot.patches ?? []) this.patches.set(patch.id, patch);
@@ -64,6 +68,7 @@ export class SessionStore {
       for (const modelCall of snapshot.modelCalls ?? []) {
         this.modelCalls.set(modelCall.id, modelCall);
       }
+      for (const hook of snapshot.hooks ?? []) this.hooks.set(hook.id, hook);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -253,6 +258,18 @@ export class SessionStore {
     return record;
   }
 
+  async saveHookRecord(record: HookRecord): Promise<HookRecord> {
+    this.hooks.set(record.id, record);
+    await this.save();
+    return record;
+  }
+
+  async saveHookRecords(records: HookRecord[]): Promise<HookRecord[]> {
+    for (const record of records) this.hooks.set(record.id, record);
+    await this.save();
+    return records;
+  }
+
   getSessionLog(sessionId: SessionId): SessionLogResponse {
     const session = this.requireSession(sessionId);
     const runs = [...this.runs.values()]
@@ -273,7 +290,10 @@ export class SessionStore {
     const modelCalls = [...this.modelCalls.values()]
       .filter((modelCall) => modelCall.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { session, runs, patches, approvals, commands, repairs, modelCalls };
+    const hooks = [...this.hooks.values()]
+      .filter((hook) => hook.sessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { session, runs, patches, approvals, commands, repairs, modelCalls, hooks };
   }
 
   private requireSession(id: SessionId): AgentSession {
@@ -313,6 +333,7 @@ export class SessionStore {
       modelCalls: [...this.modelCalls.values()].sort((a, b) =>
         a.createdAt.localeCompare(b.createdAt),
       ),
+      hooks: [...this.hooks.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;

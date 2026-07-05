@@ -12,6 +12,8 @@ import {
   type AgentRunId,
   type AgentRunRequest,
   type AgentRunStepType,
+  type ProductTaskId,
+  type ProductTaskStopReason,
 } from '@wac/shared';
 import type { SessionStore } from '@wac/telemetry';
 import type { ToolRunner, ToolRegistry } from '@wac/tool-system';
@@ -46,7 +48,24 @@ export async function registerAgentRoutes(
       return reply.code(404).send({ error: 'session not found' });
     }
 
+    const task = body.taskId
+      ? deps.sessionStore.getTask(body.taskId)
+      : await deps.sessionStore.createTask({
+          sessionId: session.id,
+          workspaceId: body.workspaceId,
+          title: body.message.trim().slice(0, 80),
+          message: body.message.trim(),
+        });
+    if (!task) {
+      return reply.code(404).send({ error: 'task not found' });
+    }
+
     const run = await deps.sessionStore.createRun(session.id, body.message.trim());
+    await deps.sessionStore.updateTask(task.id, {
+      status: 'planning',
+      activeRunId: run.id,
+      taskSummary: body.message.trim(),
+    });
     const controller = new AbortController();
     controllers.set(run.id, controller);
 
@@ -65,17 +84,19 @@ export async function registerAgentRoutes(
       }
       const runningSession = await deps.sessionStore.updateSessionStatus(session.id, 'running');
       await deps.sessionStore.updateRunStatus(run.id, 'running');
+      await deps.sessionStore.updateTask(task.id, { status: 'running', activeRunId: run.id });
       const createdEvent: AgentRunEvent = {
         type: 'agent.run_created',
         session: runningSession,
         run: deps.sessionStore.getRun(run.id) ?? run,
       };
-      await recordEvent(deps.sessionStore, run.id, session.id, createdEvent);
+      await recordEvent(deps.sessionStore, run.id, session.id, task.id, createdEvent);
       res.write(sseFrame(createdEvent));
 
       for await (const event of runAgentLoop(
         {
           sessionId: session.id,
+          taskId: task.id,
           message: body.message,
           maxIterations: body.maxIterations,
         },
@@ -93,7 +114,7 @@ export async function registerAgentRoutes(
           stepDelayMs: 150,
         },
       )) {
-        await recordEvent(deps.sessionStore, run.id, session.id, event);
+        await recordEvent(deps.sessionStore, run.id, session.id, task.id, event);
         res.write(sseFrame(event));
         if (event.type === 'agent.done') {
           const hookResult = await deps.hooks.onAgentStop({
@@ -109,6 +130,29 @@ export async function registerAgentRoutes(
               : event.finishReason === 'error' || event.finishReason === 'max_iterations'
                 ? 'failed'
                 : 'completed';
+          await deps.sessionStore.updateTask(task.id, {
+            status:
+              event.finishReason === 'cancelled'
+                ? 'cancelled'
+                : event.finishReason === 'max_iterations'
+                  ? 'blocked'
+                  : event.finishReason === 'approval_required'
+                    ? 'waiting_approval'
+                    : event.finishReason === 'sandbox_failed'
+                      ? 'failed'
+                      : status,
+            stopReason: stopReasonForFinish(event.finishReason),
+            activeRunId: undefined,
+            latestDecision: event.finishReason,
+          });
+          await deps.sessionStore.saveMemory({
+            scope: 'conversation',
+            sessionId: session.id,
+            runId: run.id,
+            workspaceId: body.workspaceId,
+            summary: `Task ${task.title} stopped with ${event.finishReason}.`,
+            source: 'agent.done',
+          });
           await deps.sessionStore.updateRunStatus(run.id, status);
           await deps.sessionStore.updateSessionStatus(session.id, status);
         }
@@ -122,8 +166,14 @@ export async function registerAgentRoutes(
         type: 'agent.done',
         finishReason: 'error',
       };
-      await recordEvent(deps.sessionStore, run.id, session.id, errorEvent);
-      await recordEvent(deps.sessionStore, run.id, session.id, doneEvent);
+      await recordEvent(deps.sessionStore, run.id, session.id, task.id, errorEvent);
+      await recordEvent(deps.sessionStore, run.id, session.id, task.id, doneEvent);
+      await deps.sessionStore.updateTask(task.id, {
+        status: 'failed',
+        stopReason: 'error',
+        activeRunId: undefined,
+        latestDecision: errorEvent.message,
+      });
       await deps.sessionStore.updateRunStatus(run.id, 'failed');
       await deps.sessionStore.updateSessionStatus(session.id, 'failed');
       res.write(sseFrame(errorEvent));
@@ -155,6 +205,7 @@ async function recordEvent(
   sessionStore: SessionStore,
   runId: AgentRunId,
   sessionId: string,
+  taskId: ProductTaskId,
   event: AgentRunEvent,
 ): Promise<void> {
   const storedEvent =
@@ -171,6 +222,7 @@ async function recordEvent(
   if (storedEvent.type === 'agent.model_call') {
     await sessionStore.saveModelCall(storedEvent.call);
   }
+  await appendTaskMessageForEvent(sessionStore, taskId, storedEvent);
   if (storedEvent.type === 'agent.tool_result' && storedEvent.result.hooks) {
     await sessionStore.saveHookRecords(storedEvent.result.hooks);
   }
@@ -181,6 +233,69 @@ async function recordEvent(
     titleForEvent(storedEvent),
     storedEvent,
   );
+}
+
+async function appendTaskMessageForEvent(
+  sessionStore: SessionStore,
+  taskId: ProductTaskId,
+  event: AgentRunEvent,
+): Promise<void> {
+  if (event.type === 'agent.message') {
+    await sessionStore.appendTaskMessage(taskId, {
+      role: 'assistant',
+      content: event.content,
+    });
+  }
+  if (event.type === 'agent.status') {
+    await sessionStore.appendTaskMessage(taskId, {
+      role: 'status',
+      content: event.message,
+    });
+  }
+  if (event.type === 'agent.tool_call') {
+    await sessionStore.appendTaskMessage(taskId, {
+      role: 'tool',
+      content: `调用工具 ${event.call.name}`,
+    });
+  }
+  if (event.type === 'agent.tool_result') {
+    await sessionStore.appendTaskMessage(taskId, {
+      role: 'tool',
+      content: event.result.ok
+        ? `工具 ${event.result.name} 完成`
+        : `工具 ${event.result.name} 失败：${event.result.error ?? 'unknown error'}`,
+    });
+  }
+  if (event.type === 'agent.model_call') {
+    await sessionStore.appendTaskMessage(taskId, {
+      role: 'status',
+      content: `模型 ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`,
+      refId: event.call.id,
+    });
+  }
+  if (event.type === 'agent.error') {
+    await sessionStore.appendTaskMessage(taskId, {
+      role: 'error',
+      content: event.message,
+    });
+  }
+  if (event.type === 'agent.done') {
+    await sessionStore.appendTaskMessage(taskId, {
+      role: 'status',
+      content: `任务停止：${event.finishReason}`,
+    });
+  }
+}
+
+function stopReasonForFinish(
+  reason: Extract<AgentRunEvent, { type: 'agent.done' }>['finishReason'],
+): ProductTaskStopReason {
+  if (reason === 'cancelled') return 'cancelled';
+  if (reason === 'max_iterations') return 'budget_exceeded';
+  if (reason === 'approval_required') return 'approval_required';
+  if (reason === 'sandbox_failed') return 'sandbox_failed';
+  if (reason === 'error') return 'error';
+  return 'done';
 }
 
 function classifyStep(event: AgentRunEvent): AgentRunStepType {

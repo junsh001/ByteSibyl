@@ -29,6 +29,7 @@ export async function registerShellRoutes(
 
     const result = await deps.shellRunner.run({
       sessionId: body.sessionId,
+      taskId: body.taskId,
       command: body.command.trim(),
       timeoutMs: body.timeoutMs,
     });
@@ -36,6 +37,13 @@ export async function registerShellRoutes(
     if (body.sessionId) {
       await deps.sessionStore.saveCommandResult(result);
       await deps.sessionStore.saveHookRecords(after.records);
+      if (body.taskId && deps.sessionStore.getTask(body.taskId)) {
+        await deps.sessionStore.appendTaskMessage(body.taskId, {
+          role: 'command',
+          content: `命令 ${result.command} ${result.status}${result.exitCode === undefined ? '' : ` exit=${result.exitCode}`}`,
+          refId: result.id,
+        });
+      }
     }
     return { result };
   });

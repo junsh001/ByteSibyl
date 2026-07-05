@@ -19,8 +19,10 @@ import {
   type CreateAgentSessionResponse,
   type HealthResponse,
   type ModelProviderStatusResponse,
+  type ProductTaskListResponse,
   type SubagentListResponse,
   type SessionId,
+  type SessionListResponse,
 } from '@wac/shared';
 import { config } from './config.js';
 import { createDiagnosticsProvider } from './lsp/index.js';
@@ -115,7 +117,7 @@ await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalT
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'product-phase-01-project-workspace-git-isolation',
+  phase: 'product-phase-03-05-task-workflow',
   timestamp: new Date().toISOString(),
 }));
 
@@ -138,6 +140,10 @@ app.post('/api/sessions', async (req): Promise<CreateAgentSessionResponse> => {
   return { session };
 });
 
+app.get('/api/sessions', async (): Promise<SessionListResponse> => ({
+  sessions: sessionStore.listSessions(),
+}));
+
 app.get('/api/sessions/:id', async (req, reply) => {
   const { id } = req.params as { id: SessionId };
   const session = sessionStore.getSession(id);
@@ -149,8 +155,12 @@ app.get('/api/sessions/:id', async (req, reply) => {
 
 app.get('/api/sessions/:id/log', async (req, reply) => {
   const { id } = req.params as { id: SessionId };
+  const { limit, offset } = req.query as { limit?: string; offset?: string };
   try {
-    return sessionStore.getSessionLog(id);
+    return sessionStore.getSessionLog(id, {
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
   } catch {
     return reply.code(404).send({ error: 'session not found' });
   }
@@ -158,11 +168,20 @@ app.get('/api/sessions/:id/log', async (req, reply) => {
 
 app.get('/api/sessions/:id/trace', async (req, reply) => {
   const { id } = req.params as { id: SessionId };
+  const { limit, offset } = req.query as { limit?: string; offset?: string };
   try {
-    return sessionStore.getSessionTrace(id);
+    return sessionStore.getSessionTrace(id, {
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
   } catch {
     return reply.code(404).send({ error: 'session not found' });
   }
+});
+
+app.get('/api/tasks', async (req): Promise<ProductTaskListResponse> => {
+  const { sessionId } = req.query as { sessionId?: string };
+  return { tasks: sessionStore.listTasks(sessionId) };
 });
 
 app.get('/api/sessions/:id/events', async (req, reply) => {

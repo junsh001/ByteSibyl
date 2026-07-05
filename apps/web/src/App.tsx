@@ -13,6 +13,7 @@ import type {
   HookRecord,
   ModelProviderInfo,
   PatchProposal,
+  ProductTask,
   ProjectRecord,
   SearchTextMatch,
   SelfRepairAttempt,
@@ -46,7 +47,7 @@ interface OpenFileTab {
 
 interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'status' | 'error';
+  role: 'user' | 'assistant' | 'status' | 'tool' | 'command' | 'approval' | 'error';
   content: string;
 }
 
@@ -89,6 +90,7 @@ export default function App() {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [agentPrompt, setAgentPrompt] = useState('修复当前工作区中的 TypeScript 错误');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [currentTask, setCurrentTask] = useState<ProductTask | null>(null);
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
@@ -105,6 +107,7 @@ export default function App() {
       api.modelProviderStatus(),
       api.workspace(),
       api.projects(),
+      api.sessions(),
       api.workspaceTree(),
       api.tools(),
       api.skills(),
@@ -119,6 +122,7 @@ export default function App() {
           providerResult,
           workspaceResult,
           projectResult,
+          sessionResult,
           treeResult,
           toolResult,
           skillResult,
@@ -141,6 +145,11 @@ export default function App() {
           setDiagnostics(diagnosticsResult);
           setEvalTasks(evalTaskResult.tasks);
           setTodos(todoResult.todos);
+          const latestSession = sessionResult.sessions[0] ?? null;
+          if (latestSession) {
+            setSession(latestSession);
+            void refreshSessionLog(latestSession);
+          }
           if (projectResult.activeProjectId && projectResult.activeWorkspaceId) {
             void api
               .taskWorkspace(projectResult.activeProjectId, projectResult.activeWorkspaceId)
@@ -216,10 +225,12 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Product P2 Web IDE Chat');
+    const result = await api.createSession('Product P3-P5 Coding Task');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
+    setCurrentTask(null);
+    setChatMessages([]);
     setEvents([{ type: 'session.created', session: result.session }]);
   }
 
@@ -232,6 +243,9 @@ export default function App() {
     setSession(logResult.session);
     setSessionLog(logResult);
     setSessionTrace(traceResult);
+    const latestTask = logResult.tasks?.at(-1) ?? null;
+    setCurrentTask(latestTask);
+    setChatMessages(rehydrateChatMessages(logResult));
   }
 
   async function refreshDiagnostics() {
@@ -331,7 +345,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+      session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -369,6 +383,16 @@ export default function App() {
       setPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval ?? null);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-approval`,
+          role: 'approval',
+          content: result.approval
+            ? `已请求审批：${proposal.path}`
+            : `审批策略：${result.decision.reason}`,
+        },
+      ]);
       if (result.decision.effect === 'deny') {
         const message = result.decision.violations.map((violation) => violation.message).join(' ');
         setError(message || result.decision.reason);
@@ -387,6 +411,10 @@ export default function App() {
       setPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
+      setChatMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-approved`, role: 'approval', content: `已批准 Patch：${result.proposal.path}` },
+      ]);
       await refreshSessionLog();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -401,6 +429,10 @@ export default function App() {
       setPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
+      setChatMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-rejected`, role: 'approval', content: `已拒绝 Patch：${result.proposal.path}` },
+      ]);
       await refreshSessionLog();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -426,6 +458,10 @@ export default function App() {
         ),
       );
       await refreshSessionLog();
+      setChatMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-applied`, role: 'approval', content: `已应用 Patch：${result.proposal.path}` },
+      ]);
       setTree(await api.workspaceTree());
       await refreshDiagnostics();
     } catch (err) {
@@ -458,14 +494,23 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+        session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
+        taskId: currentTask?.id,
         command: shellCommand,
         timeoutMs: 10_000,
       });
       setShellResult(result.result);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-command`,
+          role: 'command',
+          content: `命令 ${result.result.command} ${result.result.status}${result.result.exitCode === undefined ? '' : ` exit=${result.result.exitCode}`}`,
+        },
+      ]);
       await refreshSessionLog(activeSession);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -489,11 +534,12 @@ export default function App() {
     setAgentPrompt('');
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+        session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         {
           sessionId: activeSession.id,
+          taskId: currentTask?.status === 'completed' || currentTask?.status === 'failed' ? undefined : currentTask?.id,
           workspaceId: activeTaskWorkspace?.id,
           message,
           maxIterations: 6,
@@ -527,6 +573,34 @@ export default function App() {
           if (event.type === 'agent.run_created') {
             setSession(event.session);
             setCurrentRunId(event.run.id);
+          }
+          if (event.type === 'agent.tool_call') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-tool-call`, role: 'tool', content: `调用工具 ${event.call.name}` },
+            ]);
+          }
+          if (event.type === 'agent.tool_result') {
+            setChatMessages((current) => [
+              ...current,
+              {
+                id: `${Date.now()}-tool-result`,
+                role: 'tool',
+                content: event.result.ok
+                  ? `工具 ${event.result.name} 完成`
+                  : `工具 ${event.result.name} 失败：${event.result.error ?? 'unknown error'}`,
+              },
+            ]);
+          }
+          if (event.type === 'agent.model_call') {
+            setChatMessages((current) => [
+              ...current,
+              {
+                id: `${Date.now()}-model`,
+                role: 'status',
+                content: `模型 ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`,
+              },
+            ]);
           }
           if (event.type === 'agent.todo_updated') {
             setTodos(event.todos);
@@ -580,7 +654,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+        session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -698,7 +772,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Product P2</p>
+          <p className="eyebrow">Product P3-P5</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -910,7 +984,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Product P2 real web IDE editing</small>
+            <small>Product task workflow</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -973,15 +1047,15 @@ export default function App() {
         </section>
       </main>
 
-      <div className="diff-preview" aria-label="Diff Preview">
-        <div className="diff-preview-header">
+      <details className="diff-preview" aria-label="Diff Preview">
+        <summary className="diff-preview-header">
           <strong>Diff Preview</strong>
           <span>
             {patchProposal
               ? `${patchProposal.path} +${patchProposal.additions} -${patchProposal.deletions}`
               : '等待 Patch Proposal'}
           </span>
-        </div>
+        </summary>
         {patchQueue.length > 0 ? (
           <div className="patch-queue">
             {patchQueue.map((proposal) => (
@@ -1025,7 +1099,7 @@ export default function App() {
         ) : (
           <div className="diff-empty">编辑器草稿生成 Diff 后会显示 proposed changes。</div>
         )}
-      </div>
+      </details>
     </div>
   );
 }
@@ -1128,6 +1202,54 @@ function languageForPath(path: string): string {
     default:
       return 'plaintext';
   }
+}
+
+function rehydrateChatMessages(log: SessionLogResponse): ChatMessage[] {
+  const taskMessages =
+    log.tasks
+      ?.flatMap((task) =>
+        task.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+        })),
+      )
+      .slice(-80) ?? [];
+  if (taskMessages.length > 0) return taskMessages;
+
+  return log.runs
+    .flatMap((run) =>
+      run.events.flatMap((event): ChatMessage[] => {
+        if (event.type === 'agent.message') {
+          return [{ id: `${run.id}-message-${event.content.length}`, role: 'assistant', content: event.content }];
+        }
+        if (event.type === 'agent.status') {
+          return [{ id: `${run.id}-status-${event.message.length}`, role: 'status', content: event.message }];
+        }
+        if (event.type === 'agent.tool_call') {
+          return [{ id: `${run.id}-tool-call-${event.call.name}`, role: 'tool', content: `调用工具 ${event.call.name}` }];
+        }
+        if (event.type === 'agent.tool_result') {
+          return [
+            {
+              id: `${run.id}-tool-result-${event.result.name}-${event.result.startedAt}`,
+              role: 'tool',
+              content: event.result.ok
+                ? `工具 ${event.result.name} 完成`
+                : `工具 ${event.result.name} 失败：${event.result.error ?? 'unknown error'}`,
+            },
+          ];
+        }
+        if (event.type === 'agent.error') {
+          return [{ id: `${run.id}-error-${event.message.length}`, role: 'error', content: event.message }];
+        }
+        if (event.type === 'agent.done') {
+          return [{ id: `${run.id}-done`, role: 'status', content: `任务停止：${event.finishReason}` }];
+        }
+        return [];
+      }),
+    )
+    .slice(-80);
 }
 
 function formatAgentEvent(event: AgentRunEvent): string {

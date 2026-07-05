@@ -32,7 +32,9 @@ export interface HealthResponse {
     | 'phase-17-evaluation'
     | 'phase-18-subagents'
     | 'phase-19-engineering-route'
-    | 'product-phase-01-project-workspace-git-isolation';
+    | 'product-phase-01-project-workspace-git-isolation'
+    | 'product-phase-02-real-web-ide-editing'
+    | 'product-phase-03-05-task-workflow';
   timestamp: string;
 }
 
@@ -115,6 +117,16 @@ export interface SessionLogResponse {
   repairs: SelfRepairAttempt[];
   modelCalls: ModelCallRecord[];
   hooks: HookRecord[];
+  tasks?: ProductTask[];
+  memories?: MemoryRecord[];
+  page?: PageInfo;
+}
+
+export interface PageInfo {
+  limit: number;
+  offset: number;
+  totalRuns: number;
+  totalEvents: number;
 }
 
 export type TraceEntryKind =
@@ -214,6 +226,13 @@ export interface SessionTraceExport {
   commands: CommandTrace[];
   approvals: ApprovalTrace[];
   hooks: HookRecord[];
+  page?: TracePageInfo;
+}
+
+export interface TracePageInfo {
+  limit: number;
+  offset: number;
+  total: number;
 }
 
 export interface EvalTask {
@@ -370,6 +389,79 @@ export interface TaskWorkspaceResponse {
 export interface TaskWorkspaceListResponse {
   workspaces: TaskWorkspaceRecord[];
   activeWorkspaceId?: TaskWorkspaceId;
+}
+
+export type ProductTaskId = string;
+
+export type ProductTaskStatus =
+  | 'created'
+  | 'planning'
+  | 'running'
+  | 'waiting_approval'
+  | 'verifying'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'blocked';
+
+export type ProductTaskStopReason =
+  | 'done'
+  | 'blocked'
+  | 'approval_required'
+  | 'budget_exceeded'
+  | 'sandbox_failed'
+  | 'cancelled'
+  | 'error';
+
+export interface ProductTaskMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'status' | 'tool' | 'command' | 'approval' | 'error';
+  content: string;
+  refId?: string;
+  createdAt: string;
+}
+
+export interface ProductTask {
+  id: ProductTaskId;
+  sessionId: SessionId;
+  projectId?: ProjectId;
+  workspaceId?: TaskWorkspaceId;
+  title: string;
+  status: ProductTaskStatus;
+  stopReason?: ProductTaskStopReason;
+  conversationSummary: string;
+  taskSummary: string;
+  latestDecision?: string;
+  activeRunId?: AgentRunId;
+  messages: ProductTaskMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductTaskListResponse {
+  tasks: ProductTask[];
+}
+
+export interface ProductTaskResponse {
+  task: ProductTask;
+}
+
+export type MemoryScope = 'conversation' | 'run' | 'workspace' | 'project' | 'user_preference';
+
+export interface MemoryRecord {
+  id: string;
+  scope: MemoryScope;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
+  projectId?: ProjectId;
+  workspaceId?: TaskWorkspaceId;
+  summary: string;
+  source: string;
+  createdAt: string;
+}
+
+export interface SessionListResponse {
+  sessions: AgentSession[];
 }
 
 export interface ContextRelevantFile {
@@ -607,13 +699,39 @@ export type ShellCommandSafety = 'safe' | 'risky' | 'forbidden';
 
 export interface ShellCommandRequest {
   sessionId?: SessionId;
+  taskId?: ProductTaskId;
   command: string;
   timeoutMs?: number;
+}
+
+export type SandboxProviderKind = 'local' | 'docker';
+
+export type SandboxNetworkPolicy = 'disabled' | 'host';
+
+export interface SandboxPolicy {
+  provider: SandboxProviderKind;
+  image?: string;
+  network: SandboxNetworkPolicy;
+  timeoutMs: number;
+  memoryMb?: number;
+  cpus?: number;
+  secretsInjected: boolean;
+}
+
+export interface SandboxExecutionInfo {
+  provider: SandboxProviderKind;
+  mode: 'isolated' | 'local_fallback';
+  policy: SandboxPolicy;
+  beforeChangedFiles: string[];
+  afterChangedFiles: string[];
+  diffSummary: string;
+  message: string;
 }
 
 export interface ShellCommandResult {
   id: string;
   sessionId?: SessionId;
+  taskId?: ProductTaskId;
   command: string;
   argv: string[];
   cwd: string;
@@ -628,6 +746,7 @@ export interface ShellCommandResult {
   finishedAt: string;
   durationMs: number;
   decision: PermissionDecision;
+  sandbox?: SandboxExecutionInfo;
 }
 
 export interface ShellCommandResponse {
@@ -813,6 +932,7 @@ export interface ModelCallRecord {
 
 export interface AgentRunRequest {
   sessionId?: SessionId;
+  taskId?: ProductTaskId;
   workspaceId?: TaskWorkspaceId;
   message: string;
   maxIterations?: number;
@@ -874,7 +994,14 @@ export type AgentRunEvent =
     }
   | {
       type: 'agent.done';
-      finishReason: 'final' | 'stop' | 'max_iterations' | 'error' | 'cancelled';
+      finishReason:
+        | 'final'
+        | 'stop'
+        | 'max_iterations'
+        | 'error'
+        | 'cancelled'
+        | 'approval_required'
+        | 'sandbox_failed';
     };
 
 export type AgentShellEvent =

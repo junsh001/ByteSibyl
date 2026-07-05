@@ -17,6 +17,7 @@ import type {
   HealthResponse,
   ModelProviderStatusResponse,
   PatchProposal,
+  ProductTaskListResponse,
   ReadWorkspaceFileResponse,
   RequestPatchApprovalResponse,
   SearchTextResponse,
@@ -28,6 +29,7 @@ import type {
   StartSelfRepairRequest,
   StartSelfRepairResponse,
   SessionLogResponse,
+  SessionListResponse,
   SessionTraceExport,
   ToolCallRequest,
   ToolListResponse,
@@ -99,10 +101,17 @@ export const api = {
     fetch(`/api/agent/runs/${runId}/cancel`, { method: 'POST' }).then(
       json<{ run: unknown }>,
     ),
-  sessionLog: (sessionId: string) =>
-    fetch(`/api/sessions/${sessionId}/log`).then(json<SessionLogResponse>),
+  sessions: () => fetch('/api/sessions').then(json<SessionListResponse>),
+  tasks: (sessionId?: string) =>
+    fetch(`/api/tasks${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`).then(
+      json<ProductTaskListResponse>,
+    ),
+  sessionLog: (sessionId: string, limit = 80, offset = 0) =>
+    fetch(`/api/sessions/${sessionId}/log?limit=${limit}&offset=${offset}`).then(
+      json<SessionLogResponse>,
+    ),
   sessionTrace: (sessionId: string) =>
-    fetch(`/api/sessions/${sessionId}/trace`).then(json<SessionTraceExport>),
+    fetch(`/api/sessions/${sessionId}/trace?limit=80`).then(json<SessionTraceExport>),
   createPatchPreview: (request: CreatePatchPreviewRequest) =>
     fetch('/api/patches/preview', {
       method: 'POST',

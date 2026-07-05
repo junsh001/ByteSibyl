@@ -2,78 +2,161 @@
 
 ## Product Positioning
 
-Web AI Coding Agent Lab is a browser-based learning environment for building a
-coding agent from first principles. It combines a Web IDE surface with a staged
-agent runtime so learners can see how each subsystem changes the agent's
-behavior.
+Web AI Coding Agent Lab started as a browser-based learning environment for
+building a coding agent from first principles. Phase 0-19 completed that Lab.
 
-The product is optimized for teaching agent internals, not for replacing a full
-IDE or shipping a multi-tenant SaaS system.
+The next productization track turns the Lab into a usable Web AI Coding Agent:
+a Web workspace where a user can import a real project, ask an AI agent to make
+bounded code changes, inspect traces and diffs, approve patches, run validation
+in isolation, and export the result.
 
-## Target User
+The product is still not a full IDE replacement and not a public multi-tenant
+SaaS by default. Productization starts with a single-user and private-deployment
+MVP, then moves toward team usage.
+
+## Target Users
+
+### Lab Users
 
 - Developers learning how coding agents work internally.
 - Builders who want a reference implementation for workspace tools, agent
-  loops, approval, patching, diagnostics, tracing, and evaluation.
-- Technical writers preparing a Chinese tutorial series around Web AI Coding
-  Agents.
-- Chinese technical readers who want tutorial chapters and knowledge-teaching
-  blog posts tied to each runnable phase.
+  loops, approval, patching, diagnostics, tracing, evaluation, skills, hooks,
+  and subagents.
+- Technical writers preparing Chinese tutorial and blog content around Web AI
+  Coding Agents.
 
-## Final User Flow
+### Product Users
 
-1. The user opens an example workspace in the Web UI.
-2. The Web UI displays the file tree, editor, agent chat, todo plan, logs, and
-   trace panels.
-3. The user asks the agent to fix a coding task.
-4. The agent gathers context using workspace tools.
-5. The agent runs validation commands through the shell runner.
-6. The agent proposes a patch instead of silently modifying files.
-7. The Web UI displays the diff and asks for approval.
-8. After approval, the patch is applied.
-9. The agent validates again.
-10. The Web UI shows the final summary, trace, changed files, and remaining
-    risks.
+- Individual developers who want a controlled browser-based coding agent for
+  small projects.
+- Small teams that want a private deployment for AI-assisted maintenance tasks.
+- Agent builders who need an inspectable reference product for sandboxing,
+  memory, tool governance, and audit.
+
+## Product Milestones
+
+### Single-user MVP
+
+The user can:
+
+1. Import or select a local Git project.
+2. Create an isolated task workspace using branch/worktree.
+3. Ask the agent to fix or implement a small scoped task.
+4. Watch the agent gather context, run commands, and propose a multi-file diff.
+5. Approve or reject changes.
+6. Re-run validation after apply.
+7. Export a patch, commit draft, or PR draft.
+
+### Private Beta
+
+The deployment can:
+
+1. Run commands in a sandbox provider.
+2. Persist sessions, tasks, patches, commands, model calls, traces, and memory.
+3. Recover interrupted tasks.
+4. Enforce project-level policies.
+5. Redact secrets from logs, prompts, traces, and sandbox environments.
+6. Run regression evals before release.
+
+### Team Product
+
+The product can:
+
+1. Authenticate users.
+2. Isolate tenant/project workspaces.
+3. Enforce quota and model budgets.
+4. Provide team audit logs.
+5. Govern plugins, MCP tools, and skills through manifests and permissions.
+
+## Core User Flow
+
+```text
+User selects a project
+  -> Server creates project workspace metadata
+  -> Git layer creates branch/worktree for a task
+  -> User submits an Agent task
+  -> Agent builds context and task memory
+  -> Agent runs allowed tools and sandboxed commands
+  -> Agent proposes multi-file Patch Proposal
+  -> Web UI displays Diff, Trace, command outputs, and risk notes
+  -> User approves, rejects, or asks for changes
+  -> Patch is applied only after approval
+  -> Agent validates again
+  -> User exports commit/patch/PR draft
+```
 
 ## In Scope
 
-- Web IDE shell: file tree, editor, agent panel, todo panel, logs, diff preview.
-- Agent runtime: loop, state machine, tools, context, planning, and telemetry.
-- Workspace tools: list files, read file, search text, tree view.
-- Patch workflow: propose diff, preview, apply after approval.
-- Shell execution: safe commands, timeout, captured output.
-- LSP diagnostics: TypeScript diagnostics as feedback.
-- Guardrails: permission classes, approval interruptions, forbidden actions.
-- Evaluation: task files, success commands, changed-file limits, JSON reports.
-- Chinese tutorial and Chinese blog artifacts for every phase.
+- Web IDE surface: file tree, editor, agent panel, todo panel, logs, trace,
+  diagnostics, diff preview, approval, and project/workspace status.
+- Project workspace isolation: Git branch/worktree or equivalent isolated
+  workspace.
+- Agent runtime: loop, task state machine, tools, memory, context, planning,
+  subagents, telemetry.
+- Workspace tools: list files, read file, search text, tree view, changed file
+  status.
+- Patch workflow: multi-file diff, preview, approval, apply, conflict handling,
+  rollback note.
+- Shell execution: safe command classification, sandbox provider, timeout,
+  captured output.
+- LSP diagnostics: TypeScript first, extensible later.
+- Guardrails: permission classes, approval interruptions, forbidden actions,
+  policy manifests.
+- Memory: conversation, run, workspace, project, and user preference memory with
+  clear boundaries.
+- Tool governance: schema, permission, source, version, risk class, audit.
+- Skill and plugin governance: local skills first; manifest-driven plugins and
+  MCP tools later.
+- Evaluation: task files, regression suite, success commands, changed-file
+  limits, JSON reports.
+- Chinese tutorial and Chinese blog artifacts for every product phase.
 
-## Out of Scope
+## Out of Scope for Single-user MVP
 
-- Cloud multi-tenant sandboxing.
+- Public cloud multi-tenant SaaS.
 - Full VS Code replacement.
-- Automatic git push, pull request creation, or remote repository mutation.
-- Large-scale multi-agent parallelism before the subagents phase.
+- Automatic PR merge.
+- Long-running unattended background development.
+- Arbitrary untrusted code execution without sandbox support.
 - MCP marketplace.
 - Support for every language server.
-- Long-running background automation.
 
-## First Complete Scenario
+## Memory Requirements
 
-The first complete scenario appears after Phase 9:
+Memory must be explicit and layered:
 
-```text
-examples/buggy-ts-project has a TypeScript error.
-User: "Fix the typecheck error."
-Agent: runs typecheck, reads the error, inspects relevant files, proposes a
-patch, waits for approval, applies the patch, runs typecheck again, and reports
-the result.
-```
+- **Conversation memory**: what the user asked across turns.
+- **Run memory**: what happened in the current run.
+- **Workspace memory**: files, diagnostics, commands, recent diffs.
+- **Project memory**: stable project facts, build commands, conventions.
+- **User preference memory**: style and policy preferences.
+
+No product phase may merge these into an opaque prompt blob without documenting
+what is stored, when it is retrieved, and how it is audited.
+
+## Tool and Skill Requirements
+
+Tools must remain structured and governed:
+
+- Tool schema validation is mandatory.
+- Tool permissions must be explicit.
+- Tool source, version, risk class, and audit trail become mandatory as product
+  governance matures.
+
+Skills must remain inspectable:
+
+- Local skills may be loaded from `.skills`.
+- Product skills need manifests before remote loading.
+- MCP and plugin tools must not bypass permission, audit, or sandbox policy.
 
 ## Success Criteria
 
-- The Web UI can demonstrate each phase visibly.
-- The agent runtime stays decoupled from the Web UI.
-- Tool calls and edits are observable.
+- The Web UI can operate on a real small project, not only examples.
+- Agent changes happen in isolated workspaces.
+- Tool calls, memory updates, model calls, file edits, approvals, and commands
+  are observable.
 - File writes and commands are controlled by explicit policies.
-- Each phase has a matching design note, Chinese tutorial chapter, and Chinese
-  blog draft.
+- Patch output can be reviewed and exported.
+- Validation results are visible and reproducible.
+- Each product phase has a product requirement, design note, Chinese tutorial
+  chapter, Chinese blog draft, and validation result.

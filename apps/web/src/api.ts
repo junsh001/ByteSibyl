@@ -8,19 +8,27 @@ import type {
   CreatePatchPreviewRequest,
   CreatePatchPreviewResponse,
   CreateAgentSessionResponse,
+  DiagnosticsResponse,
+  EvalRunResponse,
+  EvalTaskListResponse,
   HealthResponse,
+  ModelProviderStatusResponse,
   PatchProposal,
   ReadWorkspaceFileResponse,
   RequestPatchApprovalResponse,
   SearchTextResponse,
   ShellCommandRequest,
   ShellCommandResponse,
+  SkillListResponse,
+  SubagentListResponse,
   StartSelfRepairRequest,
   StartSelfRepairResponse,
   SessionLogResponse,
+  SessionTraceExport,
   ToolCallRequest,
   ToolListResponse,
   ToolResult,
+  TodoListResponse,
   VerifySelfRepairRequest,
   VerifySelfRepairResponse,
   WorkspaceFileNode,
@@ -34,8 +42,13 @@ async function json<T>(res: Response): Promise<T> {
 
 export const api = {
   health: () => fetch('/api/health').then(json<HealthResponse>),
+  modelProviderStatus: () =>
+    fetch('/api/model-provider/status').then(json<ModelProviderStatusResponse>),
   workspace: () => fetch('/api/workspace').then(json<WorkspaceInfo>),
   workspaceTree: () => fetch('/api/workspace/tree').then(json<WorkspaceFileNode>),
+  diagnostics: () => fetch('/api/diagnostics').then(json<DiagnosticsResponse>),
+  evalTasks: () => fetch('/api/eval/tasks').then(json<EvalTaskListResponse>),
+  runEval: () => fetch('/api/eval/run', { method: 'POST' }).then(json<EvalRunResponse>),
   readWorkspaceFile: (path: string) =>
     fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`).then(
       json<ReadWorkspaceFileResponse>,
@@ -43,6 +56,9 @@ export const api = {
   searchWorkspace: (query: string) =>
     fetch(`/api/workspace/search?q=${encodeURIComponent(query)}`).then(json<SearchTextResponse>),
   tools: () => fetch('/api/tools').then(json<ToolListResponse>),
+  skills: () => fetch('/api/skills').then(json<SkillListResponse>),
+  subagents: () => fetch('/api/subagents').then(json<SubagentListResponse>),
+  todos: () => fetch('/api/todos').then(json<TodoListResponse>),
   runTool: (request: ToolCallRequest) =>
     fetch('/api/tools/run', {
       method: 'POST',
@@ -60,6 +76,8 @@ export const api = {
     ),
   sessionLog: (sessionId: string) =>
     fetch(`/api/sessions/${sessionId}/log`).then(json<SessionLogResponse>),
+  sessionTrace: (sessionId: string) =>
+    fetch(`/api/sessions/${sessionId}/trace`).then(json<SessionTraceExport>),
   createPatchPreview: (request: CreatePatchPreviewRequest) =>
     fetch('/api/patches/preview', {
       method: 'POST',

@@ -43,7 +43,7 @@ Phase 5 把每个事件保存为 run events，并额外生成教学视角的 ste
 - final
 - error
 
-这样做的好处是，前端可以实时显示事件，教程可以讲清楚步骤，后续 Trace 和 Evaluation 也有基础
+这样做的好处是，前端可以实时显示事件，教程可以讲清楚步骤，后续完整 Trace 和 Evaluation 也有基础
 数据来源。
 
 ## 不要太早上复杂系统

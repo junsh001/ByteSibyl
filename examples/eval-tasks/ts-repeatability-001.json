@@ -1,0 +1,8 @@
+{
+  "id": "ts-repeatability-001",
+  "workspace": "examples/buggy-ts-project",
+  "prompt": "Run the TypeScript validation command and report whether the workspace is clean.",
+  "successCommands": ["npm run typecheck"],
+  "forbiddenFiles": ["README.md", "package.json"],
+  "maxChangedFiles": 1
+}

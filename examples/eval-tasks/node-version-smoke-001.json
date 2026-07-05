@@ -1,0 +1,8 @@
+{
+  "id": "node-version-smoke-001",
+  "workspace": "examples/buggy-ts-project",
+  "prompt": "Verify the JavaScript runtime is available before attempting a coding task.",
+  "successCommands": ["node --version"],
+  "forbiddenFiles": ["package.json", "src/index.ts"],
+  "maxChangedFiles": 0
+}

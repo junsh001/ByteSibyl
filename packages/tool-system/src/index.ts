@@ -4,11 +4,24 @@ import type {
   ToolDefinition,
   ToolPermission,
   ToolResult,
+  DiagnosticsResponse,
+  TodoListResponse,
+  TodoStatus,
+  WorkspaceDiagnostic,
 } from '@wac/shared';
+import type { TodoPlanner } from '@wac/planner';
+import type { HookContext, HookRegistry } from '@wac/hooks';
 import type { WorkspaceService } from '@wac/workspace';
+
+export interface DiagnosticsProvider {
+  getDiagnostics(): Promise<WorkspaceDiagnostic[]>;
+}
 
 export interface ToolContext {
   workspace: WorkspaceService;
+  diagnostics?: DiagnosticsProvider;
+  planner?: TodoPlanner;
+  hooks?: HookRegistry;
   trace?: ToolCallTrace[];
 }
 
@@ -50,9 +63,14 @@ export class ToolRunner {
     private readonly context: ToolContext,
   ) {}
 
-  async run(name: string, input: unknown): Promise<ToolResult> {
+  async run(name: string, input: unknown, hookContext: HookContext = {}): Promise<ToolResult> {
     const tool = this.registry.get(name);
     const startedAt = new Date().toISOString();
+    const hookRecords = this.context.hooks
+      ? (await this.context.hooks.beforeToolCall({ ...hookContext, toolName: name, toolInput: input }))
+          .records
+      : [];
+    const blockedHook = hookRecords.find((record) => record.status === 'blocked');
 
     if (!tool) {
       return {
@@ -60,6 +78,19 @@ export class ToolRunner {
         name,
         permission: 'read_only',
         error: `Unknown tool: ${name}`,
+        hooks: hookRecords,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+      };
+    }
+
+    if (blockedHook) {
+      return {
+        ok: false,
+        name: tool.name,
+        permission: tool.permission,
+        error: blockedHook.message,
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
@@ -72,6 +103,7 @@ export class ToolRunner {
         name: tool.name,
         permission: tool.permission,
         error: validation.error,
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
@@ -84,9 +116,16 @@ export class ToolRunner {
         name: tool.name,
         permission: tool.permission,
         output,
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
+      if (this.context.hooks) {
+        result.hooks = [
+          ...hookRecords,
+          ...(await this.context.hooks.afterToolCall({ ...hookContext, result })).records,
+        ];
+      }
       this.context.trace?.push({
         name: tool.name,
         permission: tool.permission,
@@ -102,9 +141,16 @@ export class ToolRunner {
         name: tool.name,
         permission: tool.permission,
         error: err instanceof Error ? err.message : String(err),
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
+      if (this.context.hooks) {
+        result.hooks = [
+          ...hookRecords,
+          ...(await this.context.hooks.afterToolCall({ ...hookContext, result })).records,
+        ];
+      }
       this.context.trace?.push({
         name: tool.name,
         permission: tool.permission,
@@ -119,7 +165,12 @@ export class ToolRunner {
   }
 }
 
-export function createWorkspaceToolRegistry(): ToolRegistry {
+export interface WorkspaceToolRegistryOptions {
+  diagnostics?: boolean;
+  planner?: boolean;
+}
+
+export function createWorkspaceToolRegistry(options: WorkspaceToolRegistryOptions = {}): ToolRegistry {
   const registry = new ToolRegistry();
 
   registry.register({
@@ -176,6 +227,95 @@ export function createWorkspaceToolRegistry(): ToolRegistry {
       };
     },
   });
+
+  if (options.diagnostics) {
+    registry.register({
+      name: 'get_diagnostics',
+      description: 'Return TypeScript diagnostics for the current workspace.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      run: async (_input: unknown, context): Promise<DiagnosticsResponse> => {
+        if (!context.diagnostics) {
+          throw new Error('Diagnostics provider is not configured.');
+        }
+        return {
+          diagnostics: await context.diagnostics.getDiagnostics(),
+          generatedAt: new Date().toISOString(),
+          workspaceRoot: context.workspace.root,
+        };
+      },
+    });
+  }
+
+  if (options.planner) {
+    registry.register({
+      name: 'todo_write',
+      description: 'Replace the visible todo plan with a new task item.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', minLength: 1 },
+        },
+        required: ['title'],
+        additionalProperties: false,
+      },
+      run: async (input: unknown, context): Promise<TodoListResponse> => {
+        if (!context.planner) throw new Error('Todo planner is not configured.');
+        const { title } = input as { title: string };
+        return { todos: context.planner.writeTodos([title]) };
+      },
+    });
+
+    registry.register({
+      name: 'todo_update',
+      description: 'Update a todo item status to pending, in_progress, done, or blocked.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          status: { type: 'string', minLength: 1 },
+          detail: { type: 'string' },
+        },
+        required: ['id', 'status'],
+        additionalProperties: false,
+      },
+      run: async (input: unknown, context): Promise<TodoListResponse> => {
+        if (!context.planner) throw new Error('Todo planner is not configured.');
+        const { id, status, detail } = input as {
+          id: string;
+          status: TodoStatus;
+          detail?: string;
+        };
+        if (!['pending', 'in_progress', 'done', 'blocked'].includes(status)) {
+          throw new Error(`Unsupported todo status: ${status}`);
+        }
+        return { todos: context.planner.updateTodo(id, status, detail) };
+      },
+    });
+
+    registry.register({
+      name: 'todo_read',
+      description: 'Read the current visible todo plan.',
+      permission: 'read_only',
+      schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      run: async (_input: unknown, context): Promise<TodoListResponse> => {
+        if (!context.planner) throw new Error('Todo planner is not configured.');
+        return { todos: context.planner.readTodos() };
+      },
+    });
+  }
 
   return registry;
 }

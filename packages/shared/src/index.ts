@@ -21,7 +21,17 @@ export interface HealthResponse {
     | 'phase-06-patch-engine'
     | 'phase-07-permission-approval-guardrails'
     | 'phase-08-shell-runner'
-    | 'phase-09-self-repair-loop';
+    | 'phase-09-self-repair-loop'
+    | 'phase-10-model-provider-integration'
+    | 'phase-11-lsp-diagnostics'
+    | 'phase-12-context-engine'
+    | 'phase-13-todo-planner'
+    | 'phase-14-skills'
+    | 'phase-15-hooks'
+    | 'phase-16-trace-replay-observability'
+    | 'phase-17-evaluation'
+    | 'phase-18-subagents'
+    | 'phase-19-engineering-route';
   timestamp: string;
 }
 
@@ -62,6 +72,11 @@ export type AgentRunStatus =
   | 'cancelled';
 
 export type AgentRunStepType =
+  | 'context_summary'
+  | 'todo'
+  | 'skill'
+  | 'subagent'
+  | 'hook'
   | 'model_call'
   | 'tool_call'
   | 'tool_result'
@@ -97,6 +112,155 @@ export interface SessionLogResponse {
   approvals: ApprovalRequest[];
   commands: ShellCommandResult[];
   repairs: SelfRepairAttempt[];
+  modelCalls: ModelCallRecord[];
+  hooks: HookRecord[];
+}
+
+export type TraceEntryKind =
+  | 'session'
+  | 'agent_event'
+  | 'model_call'
+  | 'tool_call'
+  | 'tool_result'
+  | 'file_edit'
+  | 'command'
+  | 'approval'
+  | 'hook';
+
+export interface TraceTimelineEntry {
+  id: string;
+  sessionId: SessionId;
+  runId?: AgentRunId;
+  kind: TraceEntryKind;
+  title: string;
+  summary: string;
+  status?: string;
+  refId?: string;
+  timestamp: string;
+  data: unknown;
+}
+
+export interface ModelCallTrace {
+  id: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
+  provider: ModelProviderKind;
+  model: string;
+  status: ModelCallStatus;
+  latencyMs: number;
+  usage?: ModelUsage;
+  requestSummary: string;
+  responseSummary?: string;
+  error?: string;
+  timestamp: string;
+}
+
+export interface FileEditEvidence {
+  lineCount: number;
+  sample: string[];
+}
+
+export interface FileEditTrace {
+  id: PatchProposalId;
+  sessionId?: SessionId;
+  path: string;
+  status: PatchProposalStatus;
+  additions: number;
+  deletions: number;
+  before: FileEditEvidence;
+  after: FileEditEvidence;
+  unifiedDiff: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommandTrace {
+  id: string;
+  sessionId?: SessionId;
+  command: string;
+  argv: string[];
+  cwd: string;
+  safety: ShellCommandSafety;
+  status: ShellCommandStatus;
+  exitCode?: number;
+  durationMs: number;
+  stdoutSummary: string;
+  stderrSummary: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface ApprovalTrace {
+  id: ApprovalRequestId;
+  sessionId: SessionId;
+  action: PermissionActionKind;
+  subjectId: string;
+  permission: ToolPermission;
+  status: ApprovalStatus;
+  reason: string;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string;
+}
+
+export interface SessionTraceExport {
+  session: AgentSession;
+  generatedAt: string;
+  timeline: TraceTimelineEntry[];
+  modelCalls: ModelCallTrace[];
+  toolCalls: ToolCallTrace[];
+  fileEdits: FileEditTrace[];
+  commands: CommandTrace[];
+  approvals: ApprovalTrace[];
+  hooks: HookRecord[];
+}
+
+export interface EvalTask {
+  id: string;
+  workspace: string;
+  prompt: string;
+  successCommands: string[];
+  forbiddenFiles: string[];
+  maxChangedFiles: number;
+}
+
+export interface EvalTaskResult {
+  id: string;
+  passed: boolean;
+  successRate: number;
+  changedFilesCount: number;
+  commandCount: number;
+  toolCallCount: number;
+  approvalCount: number;
+  runtimeSeconds: number;
+  forbiddenActionCount: number;
+  forbiddenFilesModified: string[];
+  commandResults: Pick<ShellCommandResult, 'command' | 'status' | 'exitCode' | 'durationMs'>[];
+  errors: string[];
+}
+
+export interface EvalReport {
+  generatedAt: string;
+  taskCount: number;
+  passedCount: number;
+  metrics: {
+    success_rate: number;
+    changed_files_count: number;
+    command_count: number;
+    tool_call_count: number;
+    approval_count: number;
+    runtime_seconds: number;
+    forbidden_action_count: number;
+  };
+  results: EvalTaskResult[];
+}
+
+export interface EvalTaskListResponse {
+  tasks: EvalTask[];
+}
+
+export interface EvalRunResponse {
+  report: EvalReport;
 }
 
 export interface WorkspaceFileNode {
@@ -125,6 +289,146 @@ export interface SearchTextMatch {
 export interface SearchTextResponse {
   query: string;
   matches: SearchTextMatch[];
+}
+
+export type DiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
+
+export interface WorkspaceDiagnostic {
+  path: string;
+  line: number;
+  column: number;
+  endLine?: number;
+  endColumn?: number;
+  message: string;
+  severity: DiagnosticSeverity;
+  code?: string;
+  source: string;
+}
+
+export interface DiagnosticsResponse {
+  diagnostics: WorkspaceDiagnostic[];
+  generatedAt: string;
+  workspaceRoot: string;
+}
+
+export interface ContextRelevantFile {
+  path: string;
+  reason: string;
+  score: number;
+}
+
+export interface ContextBudgetStatus {
+  maxChars: number;
+  usedChars: number;
+  truncated: boolean;
+}
+
+export interface ContextSummary {
+  taskSummary: string;
+  repoMap: string[];
+  relevantFiles: ContextRelevantFile[];
+  diagnostics: WorkspaceDiagnostic[];
+  observationSummary: string[];
+  compressedObservationCount: number;
+  budget: ContextBudgetStatus;
+  generatedAt: string;
+}
+
+export type TodoStatus = 'pending' | 'in_progress' | 'done' | 'blocked';
+
+export interface TodoItem {
+  id: string;
+  title: string;
+  status: TodoStatus;
+  detail?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TodoListResponse {
+  todos: TodoItem[];
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  path: string;
+  triggers: string[];
+}
+
+export interface SkillSelection {
+  skill: SkillInfo;
+  reason: string;
+  instructions: string;
+}
+
+export interface SkillListResponse {
+  skills: SkillInfo[];
+}
+
+export type SubagentRole = 'planner' | 'coder' | 'reviewer';
+
+export type SubagentPermission = 'read_only' | 'write_patch_with_approval';
+
+export interface SubagentDefinition {
+  role: SubagentRole;
+  name: string;
+  systemPrompt: string;
+  permission: SubagentPermission;
+  responsibilities: string[];
+}
+
+export interface SubagentActionDecision {
+  action: PermissionActionKind | 'review_diff';
+  effect: PermissionDecisionEffect;
+  reason: string;
+}
+
+export interface SubagentSummary {
+  role: SubagentRole;
+  name: string;
+  summary: string;
+  permission: SubagentPermission;
+  decisions: SubagentActionDecision[];
+}
+
+export interface SubagentRunSummary {
+  task: string;
+  summaries: SubagentSummary[];
+  createdAt: string;
+}
+
+export interface SubagentListResponse {
+  subagents: SubagentDefinition[];
+}
+
+export type HookPhase =
+  | 'onSessionStart'
+  | 'beforeToolCall'
+  | 'afterToolCall'
+  | 'beforeFileEdit'
+  | 'afterFileEdit'
+  | 'beforeCommandRun'
+  | 'afterCommandRun'
+  | 'onAgentStop';
+
+export type HookStatus = 'passed' | 'blocked' | 'error';
+
+export interface HookRecord {
+  id: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
+  phase: HookPhase;
+  hookName: string;
+  status: HookStatus;
+  subject: string;
+  message: string;
+  summary?: string;
+  createdAt: string;
+}
+
+export interface HookListResponse {
+  hooks: HookRecord[];
 }
 
 export type PatchProposalId = string;
@@ -362,16 +666,21 @@ export interface ToolResult {
   permission: ToolPermission;
   output?: unknown;
   error?: string;
+  hooks?: HookRecord[];
   startedAt: string;
   finishedAt: string;
 }
 
 export interface ToolCallTrace {
+  id?: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
   name: string;
   permission: ToolPermission;
   input: unknown;
   ok: boolean;
   error?: string;
+  outputSummary?: string;
   startedAt: string;
   finishedAt: string;
 }
@@ -397,6 +706,48 @@ export interface ModelResponse {
   content?: string;
   toolCalls?: ToolCallRequest[];
   final?: boolean;
+  usage?: ModelUsage;
+}
+
+export type ModelProviderKind = 'mock' | 'openai_compatible';
+
+export type ModelProviderStatus = 'configured' | 'missing_api_key' | 'error';
+
+export interface ModelProviderInfo {
+  provider: ModelProviderKind;
+  model: string;
+  configured: boolean;
+  status: ModelProviderStatus;
+  message: string;
+  baseUrl?: string;
+  timeoutMs: number;
+}
+
+export interface ModelProviderStatusResponse {
+  provider: ModelProviderInfo;
+}
+
+export interface ModelUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+export type ModelCallStatus = 'completed' | 'failed' | 'timed_out';
+
+export interface ModelCallRecord {
+  id: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
+  provider: ModelProviderKind;
+  model: string;
+  status: ModelCallStatus;
+  latencyMs: number;
+  usage?: ModelUsage;
+  requestSummary: string;
+  responseSummary?: string;
+  error?: string;
+  createdAt: string;
 }
 
 export interface AgentRunRequest {
@@ -420,6 +771,27 @@ export type AgentRunEvent =
       type: 'agent.iteration';
       iteration: number;
       maxIterations: number;
+    }
+  | {
+      type: 'agent.context_summary';
+      summary: ContextSummary;
+    }
+  | {
+      type: 'agent.todo_updated';
+      todos: TodoItem[];
+      reason: string;
+    }
+  | {
+      type: 'agent.skill_selected';
+      selection: SkillSelection;
+    }
+  | {
+      type: 'agent.subagent_summary';
+      summary: SubagentRunSummary;
+    }
+  | {
+      type: 'agent.model_call';
+      call: ModelCallRecord;
     }
   | {
       type: 'agent.message';

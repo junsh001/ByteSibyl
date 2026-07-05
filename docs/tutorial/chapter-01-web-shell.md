@@ -14,7 +14,7 @@
 
 ## 为什么需要这个模块
 
-Coding Agent 不是只有聊天框。它需要展示文件、编辑器、计划、日志、trace、diff 和
+Coding Agent 不是只有聊天框。它需要展示文件、编辑器、计划、日志、Trace 占位、diff 和
 审批状态。如果一开始只做聊天框，后续接入 workspace、patch 和 approval 时就会不断
 推翻 UI 结构。
 
@@ -92,4 +92,3 @@ npm run build
 
 第 2 章会实现 Workspace 文件系统，让 Web 能看到真实项目文件，并让后续 agent 拥有
 读取项目上下文的基础能力。
-

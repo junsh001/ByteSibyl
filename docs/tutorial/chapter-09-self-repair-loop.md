@@ -77,13 +77,25 @@ Agent Chat 新增 `Self-Repair Loop` 面板。
 
 这个顺序保留了 Human-in-the-loop，避免 agent 在失败后直接改文件。
 
-## 6. 验证
+## 6. 边界
 
-运行：
+Phase 9 当前不实现多轮自动 retry，也不生成完整失败报告。验证失败后，系统会记录 failed
+self-repair attempt，并把 stdout/stderr 保留在 command result 中。后续 Agent 集成、Trace 和
+Diagnostics 阶段再扩展更完整的自动修复策略。
+
+## 7. 验证
+
+运行仓库验证：
 
 ```bash
 npm run typecheck
 npm run build
 ```
 
-如果验证失败，先判断问题属于类型、构建还是 Phase 9 边界。如果三次修复后同一问题仍然存在，需要停止并写失败报告。
+示例项目应保持初始 typecheck 失败状态，用于演示 self-repair start 如何生成 Patch Proposal：
+
+```bash
+npm --prefix examples/buggy-ts-project run typecheck
+```
+
+这个命令在应用修复 Patch 前应失败，在用户批准并应用 Patch 后应通过。

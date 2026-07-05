@@ -12,8 +12,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@wac/context-engine": "*",
     "@wac/model-provider": "*",
+    "@wac/planner": "*",
     "@wac/shared": "*",
+    "@wac/skills": "*",
+    "@wac/subagents": "*",
     "@wac/tool-system": "*"
   },
   "devDependencies": {

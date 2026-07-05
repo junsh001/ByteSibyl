@@ -11,7 +11,7 @@ export function formatUser(user: User): string {
 const user: User = {
   id: 'u_001',
   name: 'Ada',
-  score: 42,
+  score: '42',
 };
 
 console.log(formatUser(user));

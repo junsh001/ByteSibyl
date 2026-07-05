@@ -2,8 +2,13 @@ import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import { MockModelProvider } from '@wac/model-provider';
+import { ContextEngine } from '@wac/context-engine';
+import { HookRegistry } from '@wac/hooks';
+import { createModelProvider } from '@wac/model-provider';
+import { TodoPlanner } from '@wac/planner';
 import { ShellRunner } from '@wac/shell-runner';
+import { SkillRegistry } from '@wac/skills';
+import { SubagentCoordinator } from '@wac/subagents';
 import { SessionStore } from '@wac/telemetry';
 import { WorkspaceService } from '@wac/workspace';
 import { ToolRunner, createWorkspaceToolRegistry } from '@wac/tool-system';
@@ -13,43 +18,101 @@ import {
   type CreateAgentSessionRequest,
   type CreateAgentSessionResponse,
   type HealthResponse,
+  type ModelProviderStatusResponse,
+  type SubagentListResponse,
   type SessionId,
 } from '@wac/shared';
 import { config } from './config.js';
+import { createDiagnosticsProvider } from './lsp/index.js';
 import { registerAgentRoutes } from './routes/agent.js';
+import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
+import { registerEvalRoutes } from './routes/eval.js';
 import { registerPatchRoutes } from './routes/patches.js';
 import { registerSelfRepairRoutes } from './routes/self-repair.js';
 import { registerShellRoutes } from './routes/shell.js';
+import { registerSkillRoutes } from './routes/skills.js';
+import { registerTodoRoutes } from './routes/todos.js';
 import { registerToolRoutes } from './routes/tools.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 
 const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
+const skillRegistry = await SkillRegistry.loadFromDirectory(config.skillsRoot);
+const subagents = new SubagentCoordinator();
+const hooks = new HookRegistry();
 const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
-const toolRegistry = createWorkspaceToolRegistry();
-const toolRunner = new ToolRunner(toolRegistry, { workspace, trace: [] });
-const model = new MockModelProvider();
+const planner = new TodoPlanner();
+const diagnostics = createDiagnosticsProvider(config.workspaceRoot);
+const contextEngine = new ContextEngine(
+  {
+    getWorkspaceTree: () => workspace.tree(),
+    getDiagnostics: () => diagnostics.getDiagnostics(),
+  },
+  { maxChars: config.contextBudgetChars },
+);
+const toolRegistry = createWorkspaceToolRegistry({ diagnostics: true, planner: true });
+const toolRunner = new ToolRunner(toolRegistry, {
+  workspace,
+  diagnostics,
+  planner,
+  hooks,
+  trace: [],
+});
+const model = createModelProvider({
+  provider: config.modelProvider,
+  apiKey: config.modelApiKey,
+  baseUrl: config.modelBaseUrl,
+  model: config.modelName,
+  timeoutMs: config.modelTimeoutMs,
+});
 
 const app = Fastify({ logger: { level: 'info' }, bodyLimit: 10 * 1024 * 1024 });
 await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
 await registerToolRoutes(app, toolRegistry, toolRunner);
-await registerAgentRoutes(app, { model, toolRegistry, toolRunner, sessionStore });
-await registerPatchRoutes(app, { workspace, sessionStore });
-await registerShellRoutes(app, { shellRunner, sessionStore });
+await registerTodoRoutes(app, planner);
+await registerSkillRoutes(app, skillRegistry);
+await registerDiagnosticsRoutes(app, diagnostics, workspace.root);
+await registerAgentRoutes(app, {
+  model,
+  toolRegistry,
+  toolRunner,
+  contextEngine,
+  planner,
+  skillRegistry,
+  subagents,
+  sessionStore,
+  hooks,
+});
+await registerPatchRoutes(app, { workspace, hooks, sessionStore });
+await registerShellRoutes(app, { shellRunner, hooks, sessionStore });
 await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
+await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalTasksRoot });
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-09-self-repair-loop',
+  phase: 'phase-19-engineering-route',
   timestamp: new Date().toISOString(),
+}));
+
+app.get('/api/model-provider/status', async (): Promise<ModelProviderStatusResponse> => ({
+  provider: model.info,
+}));
+
+app.get('/api/subagents', async (): Promise<SubagentListResponse> => ({
+  subagents: subagents.list(),
 }));
 
 app.post('/api/sessions', async (req): Promise<CreateAgentSessionResponse> => {
   const body = (req.body ?? {}) as CreateAgentSessionRequest;
   const session = await sessionStore.createSession(body.title);
+  const hookResult = await hooks.onSessionStart({
+    sessionId: session.id,
+    subject: session.id,
+  });
+  await sessionStore.saveHookRecords(hookResult.records);
   return { session };
 });
 
@@ -66,6 +129,15 @@ app.get('/api/sessions/:id/log', async (req, reply) => {
   const { id } = req.params as { id: SessionId };
   try {
     return sessionStore.getSessionLog(id);
+  } catch {
+    return reply.code(404).send({ error: 'session not found' });
+  }
+});
+
+app.get('/api/sessions/:id/trace', async (req, reply) => {
+  const { id } = req.params as { id: SessionId };
+  try {
+    return sessionStore.getSessionTrace(id);
   } catch {
     return reply.code(404).send({ error: 'session not found' });
   }

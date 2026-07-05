@@ -5,27 +5,52 @@ import type {
   AgentSession,
   AgentShellEvent,
   ApprovalRequest,
+  DiagnosticsResponse,
+  EvalReport,
+  EvalTask,
   HealthResponse,
+  HookRecord,
+  ModelProviderInfo,
   PatchProposal,
   SearchTextMatch,
   SelfRepairAttempt,
   ShellCommandResult,
+  SkillInfo,
+  SkillSelection,
+  SubagentDefinition,
+  SubagentRunSummary,
   SessionLogResponse,
+  SessionTraceExport,
   ToolDefinition,
   ToolResult,
+  TodoItem,
   WorkspaceFileNode,
   WorkspaceInfo,
 } from '@wac/shared';
 import { api, connectSessionEvents } from './api';
+import { countDiagnostics, formatDiagnosticTimestamp } from './features/diagnostics';
+import { TodoPanel } from './features/todo-panel';
+import { TraceViewer } from './features/trace-viewer';
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [modelProvider, setModelProvider] = useState<ModelProviderInfo | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [tree, setTree] = useState<WorkspaceFileNode | null>(null);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
+  const [evalTasks, setEvalTasks] = useState<EvalTask[]>([]);
+  const [evalReport, setEvalReport] = useState<EvalReport | null>(null);
+  const [evalRunning, setEvalRunning] = useState(false);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [subagents, setSubagents] = useState<SubagentDefinition[]>([]);
+  const [subagentSummary, setSubagentSummary] = useState<SubagentRunSummary | null>(null);
+  const [currentSkill, setCurrentSkill] = useState<SkillSelection | null>(null);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
   const [shellCommand, setShellCommand] = useState('npm run typecheck');
   const [shellResult, setShellResult] = useState<ShellCommandResult | null>(null);
@@ -37,28 +62,59 @@ export default function App() {
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
-  const [agentPrompt, setAgentPrompt] = useState('查找 formatUser 并读取相关文件');
+  const [agentPrompt, setAgentPrompt] = useState('获取 TypeScript diagnostics 并说明当前类型错误');
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
   const [session, setSession] = useState<AgentSession | null>(null);
   const [sessionLog, setSessionLog] = useState<SessionLogResponse | null>(null);
+  const [sessionTrace, setSessionTrace] = useState<SessionTraceExport | null>(null);
   const [events, setEvents] = useState<AgentShellEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const stopAgentStreamRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    void Promise.all([api.health(), api.workspace(), api.workspaceTree(), api.tools()])
-      .then(([healthResult, workspaceResult, treeResult, toolResult]) => {
-        setHealth(healthResult);
-        setWorkspace(workspaceResult);
-        setTree(treeResult);
-        setTools(toolResult.tools);
-        const first = findFirstFile(treeResult);
-        if (first) {
-          void openFile(first.path);
-        }
-      })
+    void Promise.all([
+      api.health(),
+      api.modelProviderStatus(),
+      api.workspace(),
+      api.workspaceTree(),
+      api.tools(),
+      api.skills(),
+      api.subagents(),
+      api.diagnostics(),
+      api.evalTasks(),
+      api.todos(),
+    ])
+      .then(
+        ([
+          healthResult,
+          providerResult,
+          workspaceResult,
+          treeResult,
+          toolResult,
+          skillResult,
+          subagentResult,
+          diagnosticsResult,
+          evalTaskResult,
+          todoResult,
+        ]) => {
+          setHealth(healthResult);
+          setModelProvider(providerResult.provider);
+          setWorkspace(workspaceResult);
+          setTree(treeResult);
+          setTools(toolResult.tools);
+          setSkills(skillResult.skills);
+          setSubagents(subagentResult.subagents);
+          setDiagnostics(diagnosticsResult);
+          setEvalTasks(evalTaskResult.tasks);
+          setTodos(todoResult.todos);
+          const first = findFirstFile(treeResult);
+          if (first) {
+            void openFile(first.path);
+          }
+        },
+      )
       .catch((err: Error) => setError(err.message));
   }, []);
 
@@ -76,6 +132,24 @@ export default function App() {
     return `${session.title} · ${session.status} · ${session.id.slice(0, 8)}`;
   }, [session]);
 
+  const latestContextSummary = useMemo(() => {
+    for (let index = agentEvents.length - 1; index >= 0; index -= 1) {
+      const event = agentEvents[index];
+      if (event?.type === 'agent.context_summary') return event.summary;
+    }
+    const persisted = sessionLog?.runs
+      .flatMap((run) => run.events)
+      .filter((event) => event.type === 'agent.context_summary')
+      .at(-1);
+    return persisted?.type === 'agent.context_summary' ? persisted.summary : null;
+  }, [agentEvents, sessionLog]);
+
+  const recentHooks = useMemo(() => sessionLog?.hooks.slice(-5).reverse() ?? [], [sessionLog]);
+  const blockedHookCount = useMemo(
+    () => sessionLog?.hooks.filter((hook) => hook.status === 'blocked').length ?? 0,
+    [sessionLog],
+  );
+
   const patchFlowHint = useMemo(() => {
     if (!selectedFile) return '先在左侧选择文件。';
     if (!patchProposal) return '可以直接生成 Diff Preview，或请求审批时自动生成。';
@@ -90,17 +164,34 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 9 Self-Repair Loop');
+    const result = await api.createSession('Phase 19 Engineering Route');
     setSession(result.session);
     setSessionLog(null);
+    setSessionTrace(null);
     setEvents([{ type: 'session.created', session: result.session }]);
   }
 
   async function refreshSessionLog(targetSession = session) {
     if (!targetSession) return;
-    const result = await api.sessionLog(targetSession.id);
-    setSession(result.session);
-    setSessionLog(result);
+    const [logResult, traceResult] = await Promise.all([
+      api.sessionLog(targetSession.id),
+      api.sessionTrace(targetSession.id),
+    ]);
+    setSession(logResult.session);
+    setSessionLog(logResult);
+    setSessionTrace(traceResult);
+  }
+
+  async function refreshDiagnostics() {
+    setError(null);
+    setDiagnosticsLoading(true);
+    try {
+      setDiagnostics(await api.diagnostics());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDiagnosticsLoading(false);
+    }
   }
 
   async function openFile(path: string) {
@@ -126,7 +217,8 @@ export default function App() {
 
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
-    const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+    const activeSession =
+      session ?? (await api.createSession('Phase 19 Engineering Route')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -210,6 +302,7 @@ export default function App() {
       }
       await refreshSessionLog();
       setTree(await api.workspaceTree());
+      await refreshDiagnostics();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -239,7 +332,8 @@ export default function App() {
     setError(null);
     setShellRunning(true);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+      const activeSession =
+        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -259,9 +353,11 @@ export default function App() {
     setError(null);
     setAgentEvents([]);
     setAgentRunning(true);
+    setSubagentSummary(null);
     setCurrentRunId(null);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+      const activeSession =
+        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -270,6 +366,15 @@ export default function App() {
           if (event.type === 'agent.run_created') {
             setSession(event.session);
             setCurrentRunId(event.run.id);
+          }
+          if (event.type === 'agent.todo_updated') {
+            setTodos(event.todos);
+          }
+          if (event.type === 'agent.skill_selected') {
+            setCurrentSkill(event.selection);
+          }
+          if (event.type === 'agent.subagent_summary') {
+            setSubagentSummary(event.summary);
           }
           if (event.type === 'agent.done' || event.type === 'agent.error') {
             setAgentRunning(false);
@@ -309,7 +414,8 @@ export default function App() {
     setError(null);
     setRepairRunning(true);
     try {
-      const activeSession = session ?? (await api.createSession('Phase 9 Self-Repair Loop')).session;
+      const activeSession =
+        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -328,6 +434,7 @@ export default function App() {
         }
       }
       await refreshSessionLog(result.session);
+      await refreshDiagnostics();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -348,6 +455,7 @@ export default function App() {
       setShellResult(result.commandResult);
       setRepairAttempt(result.repair);
       await refreshSessionLog(session);
+      await refreshDiagnostics();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -355,11 +463,24 @@ export default function App() {
     }
   }
 
+  async function runEvaluation() {
+    setError(null);
+    setEvalRunning(true);
+    try {
+      const result = await api.runEval();
+      setEvalReport(result.report);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEvalRunning(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 9</p>
+          <p className="eyebrow">Phase 19</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -436,8 +557,205 @@ export default function App() {
             创建 Agent Session
           </button>
           <div className="chat-placeholder">
-            <p>Self-Repair Loop 会先运行安全验证命令，再把失败修复转换成 Patch Proposal。</p>
-            <p>文件写入仍然必须经过人工审批和已批准 Patch Apply。</p>
+            <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
+            <p>Engineering Route 会把教学 Lab 到可用产品的差距、清理项和交接信息写清楚。</p>
+          </div>
+          <div className="provider-box">
+            <div className="todo-title">Model Provider</div>
+            <div className="state-row">
+              <span>Provider</span>
+              <strong>{modelProvider?.provider ?? 'loading'}</strong>
+            </div>
+            <div className="state-row">
+              <span>Model</span>
+              <strong>{modelProvider?.model ?? 'unknown'}</strong>
+            </div>
+            <div className="state-row">
+              <span>Status</span>
+              <strong>{modelProvider?.status ?? 'unknown'}</strong>
+            </div>
+            <div className="repair-message">
+              {modelProvider?.message ?? '正在读取 Server 端 provider 配置。'}
+            </div>
+          </div>
+          <div className="diagnostics-box">
+            <div className="diagnostics-header">
+              <div>
+                <div className="todo-title">LSP Diagnostics</div>
+                <small>
+                  {diagnostics?.generatedAt
+                    ? formatDiagnosticTimestamp(diagnostics.generatedAt)
+                    : 'loading'}
+                </small>
+              </div>
+              <button type="button" disabled={diagnosticsLoading} onClick={() => void refreshDiagnostics()}>
+                {diagnosticsLoading ? '刷新中' : '刷新'}
+              </button>
+            </div>
+            <div className="state-row">
+              <span>Errors</span>
+              <strong>{countDiagnostics(diagnostics?.diagnostics ?? [], 'error')}</strong>
+            </div>
+            <div className="state-row">
+              <span>Total</span>
+              <strong>{diagnostics?.diagnostics.length ?? 0}</strong>
+            </div>
+            <div className="diagnostic-list">
+              {(diagnostics?.diagnostics ?? []).length === 0 ? (
+                <div className="diagnostic-empty">当前 workspace 没有 TypeScript diagnostics。</div>
+              ) : (
+                diagnostics?.diagnostics.slice(0, 8).map((diagnostic) => (
+                  <button
+                    type="button"
+                    key={`${diagnostic.path}:${diagnostic.line}:${diagnostic.column}:${diagnostic.message}`}
+                    onClick={() => void openFile(diagnostic.path)}
+                  >
+                    <span className={`diagnostic-severity ${diagnostic.severity}`}>
+                      {diagnostic.severity}
+                    </span>
+                    <strong>
+                      {diagnostic.path}:{diagnostic.line}:{diagnostic.column}
+                    </strong>
+                    <span>{diagnostic.message}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="context-box">
+            <div className="todo-title">Context Engine</div>
+            <div className="state-row">
+              <span>Budget</span>
+              <strong>
+                {latestContextSummary
+                  ? `${latestContextSummary.budget.usedChars}/${latestContextSummary.budget.maxChars}`
+                  : 'waiting'}
+              </strong>
+            </div>
+            <div className="state-row">
+              <span>Relevant files</span>
+              <strong>{latestContextSummary?.relevantFiles.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Compressed</span>
+              <strong>{latestContextSummary?.compressedObservationCount ?? 0}</strong>
+            </div>
+            <div className="repair-message">
+              {latestContextSummary
+                ? latestContextSummary.taskSummary
+                : '运行 Agent Loop 后会显示本轮模型调用前的 context summary。'}
+            </div>
+          </div>
+          <div className="planner-box">
+            <div className="todo-title">Todo Planner</div>
+            <TodoPanel todos={todos} />
+          </div>
+          <div className="skill-box">
+            <div className="todo-title">Skills</div>
+            <div className="state-row">
+              <span>Loaded</span>
+              <strong>{skills.length}</strong>
+            </div>
+            <div className="state-row">
+              <span>Current</span>
+              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
+            </div>
+            <div className="repair-message">
+              {currentSkill
+                ? `${currentSkill.reason} · ${currentSkill.skill.description}`
+                : '运行 Agent Loop 后会根据任务选择匹配的 skill。'}
+            </div>
+          </div>
+          <div className="subagent-box">
+            <div className="todo-title">Subagents</div>
+            <div className="state-row">
+              <span>Roles</span>
+              <strong>{subagents.length}</strong>
+            </div>
+            <div className="subagent-list">
+              {subagents.map((item) => (
+                <div className={`subagent-item ${item.role}`} key={item.role}>
+                  <span>{item.role}</span>
+                  <strong>{item.permission}</strong>
+                  <small>{item.responsibilities.join(' / ')}</small>
+                </div>
+              ))}
+            </div>
+            <div className="subagent-summary-list">
+              {(subagentSummary?.summaries ?? []).map((item) => (
+                <div className="subagent-summary" key={item.role}>
+                  <strong>{item.name}</strong>
+                  <span>{item.summary}</span>
+                  <small>
+                    {item.decisions.map((decision) => `${decision.action}:${decision.effect}`).join(' · ')}
+                  </small>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="hook-box">
+            <div className="todo-title">Hooks</div>
+            <div className="state-row">
+              <span>Recorded</span>
+              <strong>{sessionLog?.hooks.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Blocked</span>
+              <strong>{blockedHookCount}</strong>
+            </div>
+            <div className="hook-list">
+              {recentHooks.length === 0 ? (
+                <div className="hook-empty">运行命令、生成 Patch 或执行 Agent 后会显示 Hook trace。</div>
+              ) : (
+                recentHooks.map((hook) => (
+                  <div className={`hook-item ${hook.status}`} key={hook.id}>
+                    <span>{hook.status}</span>
+                    <strong>{hook.phase}</strong>
+                    <small>{hook.subject}</small>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          <TraceViewer trace={sessionTrace} />
+          <div className="eval-box">
+            <div className="eval-header">
+              <div>
+                <div className="todo-title">Evaluation</div>
+                <small>{evalTasks.length} tasks</small>
+              </div>
+              <button type="button" disabled={evalRunning} onClick={() => void runEvaluation()}>
+                {evalRunning ? '运行中' : '运行'}
+              </button>
+            </div>
+            <div className="state-row">
+              <span>Pass</span>
+              <strong>
+                {evalReport ? `${evalReport.passedCount}/${evalReport.taskCount}` : 'not run'}
+              </strong>
+            </div>
+            <div className="state-row">
+              <span>Success rate</span>
+              <strong>
+                {evalReport ? `${Math.round(evalReport.metrics.success_rate * 100)}%` : 'n/a'}
+              </strong>
+            </div>
+            <div className="state-row">
+              <span>Forbidden actions</span>
+              <strong>{evalReport?.metrics.forbidden_action_count ?? 0}</strong>
+            </div>
+            <div className="eval-results">
+              {(evalReport?.results ?? []).slice(0, 5).map((result) => (
+                <div className={result.passed ? 'eval-result passed' : 'eval-result failed'} key={result.id}>
+                  <span>{result.passed ? 'PASS' : 'FAIL'}</span>
+                  <strong>{result.id}</strong>
+                  <small>
+                    commands={result.commandCount} changed={result.changedFilesCount} forbidden=
+                    {result.forbiddenActionCount}
+                  </small>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="repair-box">
             <div className="todo-title">Self-Repair Loop</div>
@@ -634,6 +952,44 @@ export default function App() {
               <span>Repairs</span>
               <strong>{sessionLog?.repairs.length ?? 0}</strong>
             </div>
+            <div className="state-row">
+              <span>Model calls</span>
+              <strong>{sessionLog?.modelCalls.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Hooks</span>
+              <strong>{sessionLog?.hooks.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Trace events</span>
+              <strong>{sessionTrace?.timeline.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Eval tasks</span>
+              <strong>{evalTasks.length}</strong>
+            </div>
+            <div className="state-row">
+              <span>Subagents</span>
+              <strong>{subagents.length}</strong>
+            </div>
+            <div className="state-row">
+              <span>Context summaries</span>
+              <strong>
+                {sessionLog?.runs.reduce(
+                  (total, run) =>
+                    total + run.events.filter((event) => event.type === 'agent.context_summary').length,
+                  0,
+                ) ?? 0}
+              </strong>
+            </div>
+            <div className="state-row">
+              <span>Todos</span>
+              <strong>{todos.length}</strong>
+            </div>
+            <div className="state-row">
+              <span>Skill</span>
+              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
+            </div>
             <button
               className="secondary-action"
               type="button"
@@ -688,6 +1044,17 @@ export default function App() {
               </li>
               <li className={shellResult ? 'done' : ''}>安全 Shell Runner</li>
               <li className={repairAttempt ? 'done' : ''}>测试失败后的自修复循环</li>
+              <li className={modelProvider ? 'done' : ''}>Model Provider Integration</li>
+              <li className={diagnostics ? 'done' : ''}>LSP Diagnostics</li>
+              <li className={latestContextSummary ? 'done' : ''}>Context Engine</li>
+              <li className={todos.length > 0 ? 'done' : ''}>Todo Planner</li>
+              <li className={currentSkill ? 'done' : ''}>Skills</li>
+              <li className={(sessionLog?.hooks.length ?? 0) > 0 ? 'done' : ''}>Hooks</li>
+              <li className={(sessionTrace?.timeline.length ?? 0) > 0 ? 'done' : ''}>
+                Trace Replay
+              </li>
+              <li className={evalReport ? 'done' : ''}>Evaluation</li>
+              <li className={subagentSummary ? 'done' : ''}>Subagents</li>
             </ul>
           </div>
         </aside>
@@ -695,7 +1062,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 9 和 Phase 15 扩展</small>
+            <small>Phase 19 engineering route</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -741,6 +1108,17 @@ export default function App() {
             {sessionLog?.repairs.slice(-5).map((repair) => (
               <div className="log-line muted" key={repair.id}>
                 repair {repair.id.slice(0, 8)} {repair.status} {repair.message}
+              </div>
+            ))}
+            {sessionLog?.modelCalls.slice(-5).map((call) => (
+              <div className="log-line muted" key={call.id}>
+                model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
+                {call.latencyMs}ms
+              </div>
+            ))}
+            {sessionLog?.hooks.slice(-8).map((hook) => (
+              <div className="log-line muted" key={hook.id}>
+                hook {formatHookRecord(hook)}
               </div>
             ))}
           </div>
@@ -834,15 +1212,30 @@ function formatAgentEvent(event: AgentRunEvent): string {
       return `agent.status ${event.message}`;
     case 'agent.iteration':
       return `agent.iteration ${event.iteration}/${event.maxIterations}`;
+    case 'agent.context_summary':
+      return `context_summary budget=${event.summary.budget.usedChars}/${event.summary.budget.maxChars} files=${event.summary.relevantFiles.length} diagnostics=${event.summary.diagnostics.length} truncated=${event.summary.budget.truncated}`;
+    case 'agent.todo_updated':
+      return `todo_updated ${event.reason} active=${event.todos.find((todo) => todo.status === 'in_progress')?.title ?? 'none'}`;
+    case 'agent.skill_selected':
+      return `skill_selected ${event.selection.skill.name} ${event.selection.reason}`;
+    case 'agent.subagent_summary':
+      return `subagent_summary ${event.summary.summaries.map((item) => `${item.role}:${item.permission}`).join(' ')}`;
+    case 'agent.model_call':
+      return `model_call ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`;
     case 'agent.message':
       return `assistant ${event.content}`;
     case 'agent.tool_call':
       return `tool_call ${event.call.name} ${JSON.stringify(event.call.input)}`;
     case 'agent.tool_result':
-      return `tool_result ${event.result.name} ok=${event.result.ok}`;
+      return `tool_result ${event.result.name} ok=${event.result.ok} hooks=${event.result.hooks?.length ?? 0}`;
     case 'agent.error':
       return `agent.error ${event.message}`;
     case 'agent.done':
       return `agent.done ${event.finishReason}`;
   }
+}
+
+function formatHookRecord(hook: HookRecord): string {
+  const summary = hook.summary ? ` summary=${hook.summary}` : '';
+  return `${hook.id.slice(0, 8)} ${hook.status} ${hook.phase}/${hook.hookName} ${hook.subject}${summary}`;
 }

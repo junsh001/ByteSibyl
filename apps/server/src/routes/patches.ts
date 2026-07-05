@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import type { HookRegistry } from '@wac/hooks';
 import { createPatchProposal } from '@wac/patch-engine';
 import { evaluatePatchApply } from '@wac/permission';
 import type {
@@ -20,6 +21,7 @@ export async function registerPatchRoutes(
   app: FastifyInstance,
   deps: {
     workspace: WorkspaceService;
+    hooks: HookRegistry;
     sessionStore: SessionStore;
   },
 ): Promise<void> {
@@ -36,6 +38,15 @@ export async function registerPatchRoutes(
     }
     if (body.sessionId && !deps.sessionStore.getSession(body.sessionId)) {
       return reply.code(404).send({ error: 'session not found' }) as never;
+    }
+
+    const before = await deps.hooks.beforeFileEdit({
+      sessionId: body.sessionId,
+      path: body.path,
+    });
+    if (body.sessionId) await deps.sessionStore.saveHookRecords(before.records);
+    if (before.blocked) {
+      return reply.code(403).send({ error: before.message, hooks: before.records }) as never;
     }
 
     const originalContent = await deps.workspace.readTextFile(body.path);
@@ -169,12 +180,25 @@ export async function registerPatchRoutes(
     if (proposal.updatedContent === undefined) {
       return reply.code(409).send({ error: 'patch does not include updatedContent' }) as never;
     }
+    const before = await deps.hooks.beforeFileEdit({
+      sessionId: proposal.sessionId,
+      path: proposal.path,
+    });
+    if (proposal.sessionId) await deps.sessionStore.saveHookRecords(before.records);
+    if (before.blocked) {
+      return reply.code(403).send({ error: before.message, hooks: before.records }) as never;
+    }
     const decision = evaluatePatchApply(proposal);
     if (decision.effect !== 'approval_required') {
       return reply.code(409).send({ error: decision.reason, decision }) as never;
     }
 
     await deps.workspace.writeTextFile(proposal.path, proposal.updatedContent);
+    const after = await deps.hooks.afterFileEdit({
+      sessionId: proposal.sessionId,
+      path: proposal.path,
+    });
+    if (proposal.sessionId) await deps.sessionStore.saveHookRecords(after.records);
     const applied = await deps.sessionStore.updatePatchStatus(proposal.id, 'applied');
     if (proposal.sessionId) {
       await deps.sessionStore.updateSessionStatus(proposal.sessionId, 'completed');

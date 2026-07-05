@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@wac/hooks": "*",
     "@wac/shared": "*",
     "@wac/workspace": "*"
   },

@@ -17,6 +17,8 @@ import type {
   ShellCommandResult,
   SkillInfo,
   SkillSelection,
+  SubagentDefinition,
+  SubagentRunSummary,
   SessionLogResponse,
   SessionTraceExport,
   ToolDefinition,
@@ -45,6 +47,8 @@ export default function App() {
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [subagents, setSubagents] = useState<SubagentDefinition[]>([]);
+  const [subagentSummary, setSubagentSummary] = useState<SubagentRunSummary | null>(null);
   const [currentSkill, setCurrentSkill] = useState<SkillSelection | null>(null);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
@@ -77,6 +81,7 @@ export default function App() {
       api.workspaceTree(),
       api.tools(),
       api.skills(),
+      api.subagents(),
       api.diagnostics(),
       api.evalTasks(),
       api.todos(),
@@ -89,6 +94,7 @@ export default function App() {
           treeResult,
           toolResult,
           skillResult,
+          subagentResult,
           diagnosticsResult,
           evalTaskResult,
           todoResult,
@@ -99,6 +105,7 @@ export default function App() {
           setTree(treeResult);
           setTools(toolResult.tools);
           setSkills(skillResult.skills);
+          setSubagents(subagentResult.subagents);
           setDiagnostics(diagnosticsResult);
           setEvalTasks(evalTaskResult.tasks);
           setTodos(todoResult.todos);
@@ -157,7 +164,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 17 Evaluation');
+    const result = await api.createSession('Phase 18 Subagents');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
@@ -211,7 +218,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 17 Evaluation')).session;
+      session ?? (await api.createSession('Phase 18 Subagents')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -326,7 +333,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 17 Evaluation')).session;
+        session ?? (await api.createSession('Phase 18 Subagents')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -346,10 +353,11 @@ export default function App() {
     setError(null);
     setAgentEvents([]);
     setAgentRunning(true);
+    setSubagentSummary(null);
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 17 Evaluation')).session;
+        session ?? (await api.createSession('Phase 18 Subagents')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -364,6 +372,9 @@ export default function App() {
           }
           if (event.type === 'agent.skill_selected') {
             setCurrentSkill(event.selection);
+          }
+          if (event.type === 'agent.subagent_summary') {
+            setSubagentSummary(event.summary);
           }
           if (event.type === 'agent.done' || event.type === 'agent.error') {
             setAgentRunning(false);
@@ -404,7 +415,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 17 Evaluation')).session;
+        session ?? (await api.createSession('Phase 18 Subagents')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -469,7 +480,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 17</p>
+          <p className="eyebrow">Phase 18</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -547,7 +558,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Evaluation 会用任务、验证命令和 forbidden files 生成客观 JSON report。</p>
+            <p>Subagents 会把 planner、coder、reviewer 拆成独立权限和 summary。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -653,6 +664,33 @@ export default function App() {
               {currentSkill
                 ? `${currentSkill.reason} · ${currentSkill.skill.description}`
                 : '运行 Agent Loop 后会根据任务选择匹配的 skill。'}
+            </div>
+          </div>
+          <div className="subagent-box">
+            <div className="todo-title">Subagents</div>
+            <div className="state-row">
+              <span>Roles</span>
+              <strong>{subagents.length}</strong>
+            </div>
+            <div className="subagent-list">
+              {subagents.map((item) => (
+                <div className={`subagent-item ${item.role}`} key={item.role}>
+                  <span>{item.role}</span>
+                  <strong>{item.permission}</strong>
+                  <small>{item.responsibilities.join(' / ')}</small>
+                </div>
+              ))}
+            </div>
+            <div className="subagent-summary-list">
+              {(subagentSummary?.summaries ?? []).map((item) => (
+                <div className="subagent-summary" key={item.role}>
+                  <strong>{item.name}</strong>
+                  <span>{item.summary}</span>
+                  <small>
+                    {item.decisions.map((decision) => `${decision.action}:${decision.effect}`).join(' · ')}
+                  </small>
+                </div>
+              ))}
             </div>
           </div>
           <div className="hook-box">
@@ -931,6 +969,10 @@ export default function App() {
               <strong>{evalTasks.length}</strong>
             </div>
             <div className="state-row">
+              <span>Subagents</span>
+              <strong>{subagents.length}</strong>
+            </div>
+            <div className="state-row">
               <span>Context summaries</span>
               <strong>
                 {sessionLog?.runs.reduce(
@@ -1012,6 +1054,7 @@ export default function App() {
                 Trace Replay
               </li>
               <li className={evalReport ? 'done' : ''}>Evaluation</li>
+              <li className={subagentSummary ? 'done' : ''}>Subagents</li>
             </ul>
           </div>
         </aside>
@@ -1019,7 +1062,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 17 evaluation metrics</small>
+            <small>Phase 18 subagent summaries</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -1175,6 +1218,8 @@ function formatAgentEvent(event: AgentRunEvent): string {
       return `todo_updated ${event.reason} active=${event.todos.find((todo) => todo.status === 'in_progress')?.title ?? 'none'}`;
     case 'agent.skill_selected':
       return `skill_selected ${event.selection.skill.name} ${event.selection.reason}`;
+    case 'agent.subagent_summary':
+      return `subagent_summary ${event.summary.summaries.map((item) => `${item.role}:${item.permission}`).join(' ')}`;
     case 'agent.model_call':
       return `model_call ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`;
     case 'agent.message':

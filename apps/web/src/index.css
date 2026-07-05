@@ -471,6 +471,86 @@ button {
   background: #f8faff;
 }
 
+.subagent-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #d8dccc;
+  border-radius: 8px;
+  background: #fbfdf7;
+}
+
+.subagent-list,
+.subagent-summary-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.subagent-item,
+.subagent-summary {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 4px 8px;
+  padding: 8px;
+  border: 1px solid #e2e7d5;
+  border-radius: 7px;
+  background: #fffdf8;
+  font-size: 12px;
+}
+
+.subagent-item span {
+  align-self: start;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #d7d0c2;
+  color: #2d2924;
+  font-weight: 700;
+  text-align: center;
+}
+
+.subagent-item.planner span {
+  background: #4f7f6f;
+  color: white;
+}
+
+.subagent-item.coder span {
+  background: #8a6b3f;
+  color: white;
+}
+
+.subagent-item.reviewer span {
+  background: #5c6f91;
+  color: white;
+}
+
+.subagent-item strong,
+.subagent-item small,
+.subagent-summary strong,
+.subagent-summary span,
+.subagent-summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subagent-item small {
+  grid-column: 2;
+  color: #6f675b;
+}
+
+.subagent-summary {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.subagent-summary strong {
+  color: #2d2924;
+}
+
+.subagent-summary span,
+.subagent-summary small {
+  color: #5f675b;
+  line-height: 1.45;
+}
+
 .hook-box {
   margin: 0 12px 12px;
   padding: 12px;

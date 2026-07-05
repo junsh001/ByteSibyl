@@ -471,6 +471,76 @@ button {
   background: #f8faff;
 }
 
+.hook-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #d8d7c8;
+  border-radius: 8px;
+  background: #fffef6;
+}
+
+.hook-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.hook-empty {
+  padding: 8px;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #756d5c;
+  font-size: 12px;
+}
+
+.hook-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 4px 8px;
+  padding: 8px;
+  border: 1px solid #e4e1cf;
+  border-radius: 7px;
+  background: #fffdf8;
+  font-size: 12px;
+}
+
+.hook-item span {
+  align-self: start;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #d7d0c2;
+  color: #2d2924;
+  font-weight: 700;
+  text-align: center;
+}
+
+.hook-item strong,
+.hook-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hook-item small {
+  grid-column: 2;
+  color: #6f675b;
+}
+
+.hook-item.passed span {
+  background: #668a3e;
+  color: white;
+}
+
+.hook-item.blocked span {
+  background: #b3432f;
+  color: white;
+}
+
+.hook-item.error span {
+  background: #a06a22;
+  color: white;
+}
+
 .todo-state-list {
   display: grid;
   gap: 7px;

@@ -21,6 +21,7 @@ export interface AgentLoopOptions {
   contextEngine?: ContextEngine;
   planner?: TodoPlanner;
   skillRegistry?: SkillRegistry;
+  runId?: string;
   maxIterations?: number;
   signal?: AbortSignal;
   stepDelayMs?: number;
@@ -220,7 +221,10 @@ export async function* runAgentLoop(
         return;
       }
 
-      const result = await options.toolRunner.run(toolCall.name, toolCall.input);
+      const result = await options.toolRunner.run(toolCall.name, toolCall.input, {
+        sessionId: request.sessionId,
+        runId: options.runId,
+      });
       yield {
         type: 'agent.tool_result',
         result,

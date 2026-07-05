@@ -26,7 +26,8 @@ export interface HealthResponse {
     | 'phase-11-lsp-diagnostics'
     | 'phase-12-context-engine'
     | 'phase-13-todo-planner'
-    | 'phase-14-skills';
+    | 'phase-14-skills'
+    | 'phase-15-hooks';
   timestamp: string;
 }
 
@@ -70,6 +71,7 @@ export type AgentRunStepType =
   | 'context_summary'
   | 'todo'
   | 'skill'
+  | 'hook'
   | 'model_call'
   | 'tool_call'
   | 'tool_result'
@@ -106,6 +108,7 @@ export interface SessionLogResponse {
   commands: ShellCommandResult[];
   repairs: SelfRepairAttempt[];
   modelCalls: ModelCallRecord[];
+  hooks: HookRecord[];
 }
 
 export interface WorkspaceFileNode {
@@ -209,6 +212,35 @@ export interface SkillSelection {
 
 export interface SkillListResponse {
   skills: SkillInfo[];
+}
+
+export type HookPhase =
+  | 'onSessionStart'
+  | 'beforeToolCall'
+  | 'afterToolCall'
+  | 'beforeFileEdit'
+  | 'afterFileEdit'
+  | 'beforeCommandRun'
+  | 'afterCommandRun'
+  | 'onAgentStop';
+
+export type HookStatus = 'passed' | 'blocked' | 'error';
+
+export interface HookRecord {
+  id: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
+  phase: HookPhase;
+  hookName: string;
+  status: HookStatus;
+  subject: string;
+  message: string;
+  summary?: string;
+  createdAt: string;
+}
+
+export interface HookListResponse {
+  hooks: HookRecord[];
 }
 
 export type PatchProposalId = string;
@@ -446,6 +478,7 @@ export interface ToolResult {
   permission: ToolPermission;
   output?: unknown;
   error?: string;
+  hooks?: HookRecord[];
   startedAt: string;
   finishedAt: string;
 }

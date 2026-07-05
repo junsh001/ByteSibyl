@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { HookRegistry } from '@wac/hooks';
 import type { ShellRunner } from '@wac/shell-runner';
 import type { ShellCommandRequest, ShellCommandResponse } from '@wac/shared';
 import type { SessionStore } from '@wac/telemetry';
@@ -7,6 +8,7 @@ export async function registerShellRoutes(
   app: FastifyInstance,
   deps: {
     shellRunner: ShellRunner;
+    hooks: HookRegistry;
     sessionStore: SessionStore;
   },
 ): Promise<void> {
@@ -19,13 +21,21 @@ export async function registerShellRoutes(
       return reply.code(404).send({ error: 'session not found' }) as never;
     }
 
+    const before = await deps.hooks.beforeCommandRun({
+      sessionId: body.sessionId,
+      command: body.command.trim(),
+    });
+    if (body.sessionId) await deps.sessionStore.saveHookRecords(before.records);
+
     const result = await deps.shellRunner.run({
       sessionId: body.sessionId,
       command: body.command.trim(),
       timeoutMs: body.timeoutMs,
     });
+    const after = await deps.hooks.afterCommandRun({ sessionId: body.sessionId, result });
     if (body.sessionId) {
       await deps.sessionStore.saveCommandResult(result);
+      await deps.sessionStore.saveHookRecords(after.records);
     }
     return { result };
   });

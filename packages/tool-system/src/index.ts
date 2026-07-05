@@ -10,6 +10,7 @@ import type {
   WorkspaceDiagnostic,
 } from '@wac/shared';
 import type { TodoPlanner } from '@wac/planner';
+import type { HookContext, HookRegistry } from '@wac/hooks';
 import type { WorkspaceService } from '@wac/workspace';
 
 export interface DiagnosticsProvider {
@@ -20,6 +21,7 @@ export interface ToolContext {
   workspace: WorkspaceService;
   diagnostics?: DiagnosticsProvider;
   planner?: TodoPlanner;
+  hooks?: HookRegistry;
   trace?: ToolCallTrace[];
 }
 
@@ -61,9 +63,14 @@ export class ToolRunner {
     private readonly context: ToolContext,
   ) {}
 
-  async run(name: string, input: unknown): Promise<ToolResult> {
+  async run(name: string, input: unknown, hookContext: HookContext = {}): Promise<ToolResult> {
     const tool = this.registry.get(name);
     const startedAt = new Date().toISOString();
+    const hookRecords = this.context.hooks
+      ? (await this.context.hooks.beforeToolCall({ ...hookContext, toolName: name, toolInput: input }))
+          .records
+      : [];
+    const blockedHook = hookRecords.find((record) => record.status === 'blocked');
 
     if (!tool) {
       return {
@@ -71,6 +78,19 @@ export class ToolRunner {
         name,
         permission: 'read_only',
         error: `Unknown tool: ${name}`,
+        hooks: hookRecords,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+      };
+    }
+
+    if (blockedHook) {
+      return {
+        ok: false,
+        name: tool.name,
+        permission: tool.permission,
+        error: blockedHook.message,
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
@@ -83,6 +103,7 @@ export class ToolRunner {
         name: tool.name,
         permission: tool.permission,
         error: validation.error,
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
@@ -95,9 +116,16 @@ export class ToolRunner {
         name: tool.name,
         permission: tool.permission,
         output,
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
+      if (this.context.hooks) {
+        result.hooks = [
+          ...hookRecords,
+          ...(await this.context.hooks.afterToolCall({ ...hookContext, result })).records,
+        ];
+      }
       this.context.trace?.push({
         name: tool.name,
         permission: tool.permission,
@@ -113,9 +141,16 @@ export class ToolRunner {
         name: tool.name,
         permission: tool.permission,
         error: err instanceof Error ? err.message : String(err),
+        hooks: hookRecords,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
+      if (this.context.hooks) {
+        result.hooks = [
+          ...hookRecords,
+          ...(await this.context.hooks.afterToolCall({ ...hookContext, result })).records,
+        ];
+      }
       this.context.trace?.push({
         name: tool.name,
         permission: tool.permission,

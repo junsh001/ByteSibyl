@@ -7,6 +7,7 @@ import type {
   ApprovalRequest,
   DiagnosticsResponse,
   HealthResponse,
+  HookRecord,
   ModelProviderInfo,
   PatchProposal,
   SearchTextMatch,
@@ -125,6 +126,12 @@ export default function App() {
     return persisted?.type === 'agent.context_summary' ? persisted.summary : null;
   }, [agentEvents, sessionLog]);
 
+  const recentHooks = useMemo(() => sessionLog?.hooks.slice(-5).reverse() ?? [], [sessionLog]);
+  const blockedHookCount = useMemo(
+    () => sessionLog?.hooks.filter((hook) => hook.status === 'blocked').length ?? 0,
+    [sessionLog],
+  );
+
   const patchFlowHint = useMemo(() => {
     if (!selectedFile) return '先在左侧选择文件。';
     if (!patchProposal) return '可以直接生成 Diff Preview，或请求审批时自动生成。';
@@ -139,7 +146,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 14 Skills');
+    const result = await api.createSession('Phase 15 Hooks');
     setSession(result.session);
     setSessionLog(null);
     setEvents([{ type: 'session.created', session: result.session }]);
@@ -188,7 +195,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 14 Skills')).session;
+      session ?? (await api.createSession('Phase 15 Hooks')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -303,7 +310,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 14 Skills')).session;
+        session ?? (await api.createSession('Phase 15 Hooks')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -326,7 +333,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 14 Skills')).session;
+        session ?? (await api.createSession('Phase 15 Hooks')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -381,7 +388,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 14 Skills')).session;
+        session ?? (await api.createSession('Phase 15 Hooks')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -433,7 +440,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 14</p>
+          <p className="eyebrow">Phase 15</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -511,7 +518,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Skills 会把可复用工作流注入 Agent 上下文，但不会绕过工具和审批边界。</p>
+            <p>Hooks 会在工具调用、文件编辑和命令执行边界做确定性拦截与记录。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -617,6 +624,30 @@ export default function App() {
               {currentSkill
                 ? `${currentSkill.reason} · ${currentSkill.skill.description}`
                 : '运行 Agent Loop 后会根据任务选择匹配的 skill。'}
+            </div>
+          </div>
+          <div className="hook-box">
+            <div className="todo-title">Hooks</div>
+            <div className="state-row">
+              <span>Recorded</span>
+              <strong>{sessionLog?.hooks.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
+              <span>Blocked</span>
+              <strong>{blockedHookCount}</strong>
+            </div>
+            <div className="hook-list">
+              {recentHooks.length === 0 ? (
+                <div className="hook-empty">运行命令、生成 Patch 或执行 Agent 后会显示 Hook trace。</div>
+              ) : (
+                recentHooks.map((hook) => (
+                  <div className={`hook-item ${hook.status}`} key={hook.id}>
+                    <span>{hook.status}</span>
+                    <strong>{hook.phase}</strong>
+                    <small>{hook.subject}</small>
+                  </div>
+                ))
+              )}
             </div>
           </div>
           <div className="repair-box">
@@ -819,6 +850,10 @@ export default function App() {
               <strong>{sessionLog?.modelCalls.length ?? 0}</strong>
             </div>
             <div className="state-row">
+              <span>Hooks</span>
+              <strong>{sessionLog?.hooks.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
               <span>Context summaries</span>
               <strong>
                 {sessionLog?.runs.reduce(
@@ -895,6 +930,7 @@ export default function App() {
               <li className={latestContextSummary ? 'done' : ''}>Context Engine</li>
               <li className={todos.length > 0 ? 'done' : ''}>Todo Planner</li>
               <li className={currentSkill ? 'done' : ''}>Skills</li>
+              <li className={(sessionLog?.hooks.length ?? 0) > 0 ? 'done' : ''}>Hooks</li>
             </ul>
           </div>
         </aside>
@@ -902,7 +938,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 14 和 Phase 16 扩展</small>
+            <small>Phase 15 Hooks trace</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -954,6 +990,11 @@ export default function App() {
               <div className="log-line muted" key={call.id}>
                 model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
                 {call.latencyMs}ms
+              </div>
+            ))}
+            {sessionLog?.hooks.slice(-8).map((hook) => (
+              <div className="log-line muted" key={hook.id}>
+                hook {formatHookRecord(hook)}
               </div>
             ))}
           </div>
@@ -1060,10 +1101,15 @@ function formatAgentEvent(event: AgentRunEvent): string {
     case 'agent.tool_call':
       return `tool_call ${event.call.name} ${JSON.stringify(event.call.input)}`;
     case 'agent.tool_result':
-      return `tool_result ${event.result.name} ok=${event.result.ok}`;
+      return `tool_result ${event.result.name} ok=${event.result.ok} hooks=${event.result.hooks?.length ?? 0}`;
     case 'agent.error':
       return `agent.error ${event.message}`;
     case 'agent.done':
       return `agent.done ${event.finishReason}`;
   }
+}
+
+function formatHookRecord(hook: HookRecord): string {
+  const summary = hook.summary ? ` summary=${hook.summary}` : '';
+  return `${hook.id.slice(0, 8)} ${hook.status} ${hook.phase}/${hook.hookName} ${hook.subject}${summary}`;
 }

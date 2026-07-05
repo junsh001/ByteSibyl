@@ -1,5 +1,5 @@
 {
-  "name": "@wac/tool-system",
+  "name": "@wac/hooks",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wac/hooks": "*",
-    "@wac/shared": "*",
-    "@wac/workspace": "*"
+    "@wac/shared": "*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

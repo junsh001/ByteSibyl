@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { runAgentLoop } from '@wac/agent-core';
 import type { ContextEngine } from '@wac/context-engine';
+import type { HookRegistry } from '@wac/hooks';
 import type { ModelProvider } from '@wac/model-provider';
 import type { TodoPlanner } from '@wac/planner';
 import type { SkillRegistry } from '@wac/skills';
@@ -24,6 +25,7 @@ export async function registerAgentRoutes(
     planner: TodoPlanner;
     skillRegistry: SkillRegistry;
     sessionStore: SessionStore;
+    hooks: HookRegistry;
   },
 ): Promise<void> {
   const controllers = new Map<AgentRunId, AbortController>();
@@ -67,6 +69,7 @@ export async function registerAgentRoutes(
 
       for await (const event of runAgentLoop(
         {
+          sessionId: session.id,
           message: body.message,
           maxIterations: body.maxIterations,
         },
@@ -77,6 +80,7 @@ export async function registerAgentRoutes(
           contextEngine: deps.contextEngine,
           planner: deps.planner,
           skillRegistry: deps.skillRegistry,
+          runId: run.id,
           maxIterations: 6,
           signal: controller.signal,
           stepDelayMs: 150,
@@ -85,6 +89,13 @@ export async function registerAgentRoutes(
         await recordEvent(deps.sessionStore, run.id, session.id, event);
         res.write(sseFrame(event));
         if (event.type === 'agent.done') {
+          const hookResult = await deps.hooks.onAgentStop({
+            sessionId: session.id,
+            runId: run.id,
+            subject: run.id,
+            finishReason: event.finishReason,
+          });
+          await deps.sessionStore.saveHookRecords(hookResult.records);
           const status =
             event.finishReason === 'cancelled'
               ? 'cancelled'
@@ -153,6 +164,9 @@ async function recordEvent(
   if (storedEvent.type === 'agent.model_call') {
     await sessionStore.saveModelCall(storedEvent.call);
   }
+  if (storedEvent.type === 'agent.tool_result' && storedEvent.result.hooks) {
+    await sessionStore.saveHookRecords(storedEvent.result.hooks);
+  }
   await sessionStore.appendRunEvent(runId, storedEvent);
   await sessionStore.appendStep(
     runId,
@@ -172,12 +186,12 @@ function classifyStep(event: AgentRunEvent): AgentRunStepType {
       return 'todo';
     case 'agent.skill_selected':
       return 'skill';
+    case 'agent.tool_result':
+      return event.result.hooks?.some((hook) => hook.status === 'blocked') ? 'hook' : 'tool_result';
     case 'agent.model_call':
       return 'model_call';
     case 'agent.tool_call':
       return 'tool_call';
-    case 'agent.tool_result':
-      return 'tool_result';
     case 'agent.done':
       return 'final';
     case 'agent.error':

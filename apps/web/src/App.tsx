@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import type {
   AgentRunId,
   AgentRunEvent,
@@ -34,6 +35,21 @@ import { countDiagnostics, formatDiagnosticTimestamp } from './features/diagnost
 import { TodoPanel } from './features/todo-panel';
 import { TraceViewer } from './features/trace-viewer';
 
+const MAX_EDITABLE_BYTES = 256 * 1024;
+
+interface OpenFileTab {
+  path: string;
+  originalContent: string;
+  draftContent: string;
+  readOnly: boolean;
+}
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'status' | 'error';
+  content: string;
+}
+
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [modelProvider, setModelProvider] = useState<ModelProviderInfo | null>(null);
@@ -50,6 +66,7 @@ export default function App() {
   const [evalRunning, setEvalRunning] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
+  const [openFiles, setOpenFiles] = useState<OpenFileTab[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
@@ -68,8 +85,10 @@ export default function App() {
   const [repairVerifying, setRepairVerifying] = useState(false);
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
+  const [patchQueue, setPatchQueue] = useState<PatchProposal[]>([]);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
-  const [agentPrompt, setAgentPrompt] = useState('获取 TypeScript diagnostics 并说明当前类型错误');
+  const [agentPrompt, setAgentPrompt] = useState('修复当前工作区中的 TypeScript 错误');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
@@ -184,9 +203,20 @@ export default function App() {
     return 'Patch Proposal 已生成，可以请求审批。';
   }, [patchProposal, selectedFile]);
 
+  const activeOpenFile = useMemo(
+    () => (selectedFile ? openFiles.find((file) => file.path === selectedFile.path) ?? null : null),
+    [openFiles, selectedFile],
+  );
+
+  const isEditorDirty = activeOpenFile
+    ? activeOpenFile.draftContent !== activeOpenFile.originalContent
+    : false;
+
+  const visibleChatMessages = useMemo(() => chatMessages.slice(-24), [chatMessages]);
+
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Product P1 Workspace Agent');
+    const result = await api.createSession('Product P2 Web IDE Chat');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
@@ -218,11 +248,71 @@ export default function App() {
 
   async function openFile(path: string) {
     setError(null);
+    const existing = openFiles.find((file) => file.path === path);
+    if (existing) {
+      setSelectedFile({ path: existing.path, content: existing.originalContent });
+      setPatchDraft(existing.draftContent);
+      setPatchProposal(patchQueue.find((proposal) => proposal.path === existing.path) ?? null);
+      setApproval(null);
+      return;
+    }
     const result = await api.readWorkspaceFile(path);
+    const readOnly = byteLength(result.content) > MAX_EDITABLE_BYTES;
     setSelectedFile(result);
+    setOpenFiles((current) => {
+      const existing = current.find((file) => file.path === result.path);
+      if (existing) return current;
+      return [
+        ...current,
+        {
+          path: result.path,
+          originalContent: result.content,
+          draftContent: result.content,
+          readOnly,
+        },
+      ].slice(-8);
+    });
     setPatchDraft(result.content);
     setPatchProposal(null);
     setApproval(null);
+  }
+
+  function closeFile(path: string) {
+    setOpenFiles((current) => current.filter((file) => file.path !== path));
+    if (selectedFile?.path !== path) return;
+    const next = openFiles.find((file) => file.path !== path);
+    if (next) {
+      setSelectedFile({ path: next.path, content: next.originalContent });
+      setPatchDraft(next.draftContent);
+      setPatchProposal(patchQueue.find((proposal) => proposal.path === next.path) ?? null);
+    } else {
+      setSelectedFile(null);
+      setPatchDraft('');
+      setPatchProposal(null);
+    }
+    setApproval(null);
+  }
+
+  function updateEditorDraft(value: string | undefined) {
+    if (!selectedFile || value === undefined) return;
+    setPatchDraft(value);
+    setOpenFiles((current) =>
+      current.map((file) =>
+        file.path === selectedFile.path ? { ...file, draftContent: value } : file,
+      ),
+    );
+  }
+
+  function resetEditorDraft() {
+    if (!activeOpenFile) return;
+    setPatchDraft(activeOpenFile.originalContent);
+    setOpenFiles((current) =>
+      current.map((file) =>
+        file.path === activeOpenFile.path
+          ? { ...file, draftContent: activeOpenFile.originalContent }
+          : file,
+      ),
+    );
   }
 
   async function createPatchPreview() {
@@ -231,6 +321,7 @@ export default function App() {
     try {
       const result = await createPatchPreviewForSelectedFile();
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -240,7 +331,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Product P1 Workspace Agent')).session;
+      session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -257,6 +348,7 @@ export default function App() {
     try {
       const result = await api.discardPatch(patchProposal.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(null);
       await refreshSessionLog();
     } catch (err) {
@@ -275,6 +367,7 @@ export default function App() {
       setPatchProposal(proposal);
       const result = await api.requestPatchApproval(proposal.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval ?? null);
       if (result.decision.effect === 'deny') {
         const message = result.decision.violations.map((violation) => violation.message).join(' ');
@@ -292,6 +385,7 @@ export default function App() {
     try {
       const result = await api.approvePatch(approval.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
       await refreshSessionLog();
     } catch (err) {
@@ -305,6 +399,7 @@ export default function App() {
     try {
       const result = await api.rejectPatch(approval.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
       await refreshSessionLog();
     } catch (err) {
@@ -318,10 +413,18 @@ export default function App() {
     try {
       const result = await api.applyPatch(patchProposal.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setPatchDraft(result.content);
       if (selectedFile?.path === result.proposal.path) {
         setSelectedFile({ path: result.proposal.path, content: result.content });
       }
+      setOpenFiles((current) =>
+        current.map((file) =>
+          file.path === result.proposal.path
+            ? { ...file, originalContent: result.content, draftContent: result.content }
+            : file,
+        ),
+      );
       await refreshSessionLog();
       setTree(await api.workspaceTree());
       await refreshDiagnostics();
@@ -355,7 +458,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P1 Workspace Agent')).session;
+        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -371,25 +474,56 @@ export default function App() {
     }
   }
 
-  async function runAgent() {
+  async function sendMessage() {
+    const message = agentPrompt.trim();
+    if (!message) return;
     setError(null);
     setAgentEvents([]);
     setAgentRunning(true);
     setSubagentSummary(null);
     setCurrentRunId(null);
+    setChatMessages((current) => [
+      ...current,
+      { id: `${Date.now()}-user`, role: 'user', content: message },
+    ]);
+    setAgentPrompt('');
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P1 Workspace Agent')).session;
+        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         {
           sessionId: activeSession.id,
           workspaceId: activeTaskWorkspace?.id,
-          message: agentPrompt,
+          message,
           maxIterations: 6,
         },
         (event) => {
           setAgentEvents((current) => [...current, event]);
+          if (event.type === 'agent.status') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-status`, role: 'status', content: event.message },
+            ]);
+          }
+          if (event.type === 'agent.message') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-assistant`, role: 'assistant', content: event.content },
+            ]);
+          }
+          if (event.type === 'agent.error') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-error`, role: 'error', content: event.message },
+            ]);
+          }
+          if (event.type === 'agent.done') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-done`, role: 'status', content: `完成：${event.finishReason}` },
+            ]);
+          }
           if (event.type === 'agent.run_created') {
             setSession(event.session);
             setCurrentRunId(event.run.id);
@@ -413,6 +547,10 @@ export default function App() {
         (message) => {
           setAgentRunning(false);
           setError(message);
+          setChatMessages((current) => [
+            ...current,
+            { id: `${Date.now()}-stream-error`, role: 'error', content: message },
+          ]);
           setCurrentRunId(null);
           stopAgentStreamRef.current = null;
         },
@@ -442,7 +580,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P1 Workspace Agent')).session;
+        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -458,6 +596,12 @@ export default function App() {
           const file = await api.readWorkspaceFile(result.proposal.path);
           setSelectedFile(file);
           setPatchDraft(result.proposal.updatedContent);
+          setOpenFiles((current) => upsertOpenFile(current, {
+            path: file.path,
+            originalContent: file.content,
+            draftContent: result.proposal?.updatedContent ?? file.content,
+            readOnly: byteLength(file.content) > MAX_EDITABLE_BYTES,
+          }));
         }
       }
       await refreshSessionLog(result.session);
@@ -539,6 +683,10 @@ export default function App() {
       setDiagnostics(diagnosticsResult);
       setSelectedFile(null);
       setPatchDraft('');
+      setOpenFiles([]);
+      setPatchProposal(null);
+      setPatchQueue([]);
+      setApproval(null);
       const first = findFirstFile(treeResult);
       if (first) void openFile(first.path);
     } catch (err) {
@@ -550,7 +698,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Product P1</p>
+          <p className="eyebrow">Product P2</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -606,15 +754,74 @@ export default function App() {
         <section className="panel editor">
           <div className="panel-header">
             <span>{selectedFile?.path ?? 'Editor'}</span>
-            <small>{selectedFile ? `${selectedFile.content.split(/\r?\n/).length} lines` : ''}</small>
+            <small>
+              {activeOpenFile
+                ? `${activeOpenFile.draftContent.split(/\r?\n/).length} lines${isEditorDirty ? ' · dirty' : ''}${activeOpenFile.readOnly ? ' · read-only' : ''}`
+                : 'Monaco'}
+            </small>
           </div>
-          <div className="editor-placeholder">
-            <div className="line-gutter">
-              {(selectedFile?.content.split(/\r?\n/) ?? ['']).map((_, index) => (
-                <div key={index}>{index + 1}</div>
-              ))}
-            </div>
-            <pre>{selectedFile?.content ?? '选择左侧文件'}</pre>
+          <div className="editor-tabs">
+            {openFiles.length === 0 ? (
+              <span>从左侧文件树打开文件</span>
+            ) : (
+              openFiles.map((file) => (
+                <button
+                  type="button"
+                  key={file.path}
+                  className={selectedFile?.path === file.path ? 'active' : ''}
+                  onClick={() => void openFile(file.path)}
+                >
+                  <span>{file.path.split('/').at(-1) ?? file.path}</span>
+                  {file.draftContent !== file.originalContent ? <strong>●</strong> : null}
+                  <i onClick={(event) => {
+                    event.stopPropagation();
+                    closeFile(file.path);
+                  }}>
+                    ×
+                  </i>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="editor-toolbar">
+            <button type="button" disabled={!selectedFile || activeOpenFile?.readOnly} onClick={() => void createPatchPreview()}>
+              生成 Diff
+            </button>
+            <button type="button" disabled={!isEditorDirty} onClick={resetEditorDraft}>
+              放弃草稿
+            </button>
+            <button type="button" disabled={!selectedFile} onClick={() => void requestPatchApproval()}>
+              请求审批
+            </button>
+            <button type="button" disabled={!approval || approval.status !== 'pending'} onClick={() => void approvePatch()}>
+              批准
+            </button>
+            <button type="button" disabled={!patchProposal || patchProposal.status !== 'approved'} onClick={() => void applyPatch()}>
+              应用
+            </button>
+            <span>{patchFlowHint}</span>
+          </div>
+          <div className="monaco-shell">
+            {activeOpenFile ? (
+              <Editor
+                key={activeOpenFile.path}
+                value={activeOpenFile.draftContent}
+                defaultLanguage={languageForPath(activeOpenFile.path)}
+                theme="vs-light"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  readOnly: activeOpenFile.readOnly,
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                }}
+                onChange={updateEditorDraft}
+              />
+            ) : (
+              <div className="editor-empty">选择左侧文件后开始编辑草稿。</div>
+            )}
           </div>
         </section>
 
@@ -623,198 +830,87 @@ export default function App() {
             <span>AI Assistant</span>
             <small>{sessionLabel}</small>
           </div>
-          <section className="project-strip" aria-label="Project Workspace">
-            <div className="project-strip-header">
-              <div>
-                <span>当前项目</span>
-                <strong>{activeProject?.name ?? '未绑定 Git 项目'}</strong>
-              </div>
-              <small>{activeTaskWorkspace?.branch ?? 'no isolated branch'}</small>
+          <section className="chat-workspace-strip" aria-label="Workspace status">
+            <div>
+              <strong>{activeProject?.name ?? '未绑定项目'}</strong>
+              <span>{activeTaskWorkspace?.branch ?? '未创建隔离工作区'}</span>
             </div>
-            <input
-              value={repoPath}
-              onChange={(event) => setRepoPath(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void createProject();
-              }}
-              placeholder="Git repo path，例如 ."
-            />
-            <div className="project-actions">
-              <button type="button" onClick={() => void createProject()}>
-                绑定项目
-              </button>
-              <button type="button" disabled={!activeProject} onClick={() => void createTaskWorkspace()}>
-                创建隔离工作区
-              </button>
-            </div>
-            <input
-              value={branchName}
-              onChange={(event) => setBranchName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void createTaskWorkspace();
-              }}
-              placeholder="分支名可选，例如 bytesibyl/task-a"
-            />
-            <div className="project-facts">
-              <span>
-                Projects <strong>{projects.length}</strong>
-              </span>
-              <span>
-                Changed <strong>{activeTaskWorkspace?.changedFiles.length ?? 0}</strong>
-              </span>
-              <span>
-                Diagnostics <strong>{diagnostics?.diagnostics.length ?? 0}</strong>
-              </span>
-            </div>
-            {activeTaskWorkspace ? (
-              <div className="workspace-summary">
-                <span>{activeTaskWorkspace.worktreePath}</span>
-                {(activeTaskWorkspace.changedFiles.length > 0
-                  ? activeTaskWorkspace.changedFiles.slice(0, 4)
-                  : ['当前隔离工作区没有未提交变更。']
-                ).map((item) => (
-                  <small key={item}>{item}</small>
-                ))}
+            <small>{activeTaskWorkspace?.changedFiles.length ?? 0} changed</small>
+            <details>
+              <summary>项目设置</summary>
+              <input
+                value={repoPath}
+                onChange={(event) => setRepoPath(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void createProject();
+                }}
+                placeholder="Git repo path，例如 ."
+              />
+              <input
+                value={branchName}
+                onChange={(event) => setBranchName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void createTaskWorkspace();
+                }}
+                placeholder="分支名可选"
+              />
+              <div className="project-actions">
+                <button type="button" onClick={() => void createProject()}>
+                  绑定项目
+                </button>
+                <button type="button" disabled={!activeProject} onClick={() => void createTaskWorkspace()}>
+                  创建工作区
+                </button>
               </div>
-            ) : (
-              <div className="workspace-summary empty">
-                先绑定本地 Git repo，再为任务创建独立 branch/worktree。
-              </div>
-            )}
+            </details>
           </section>
 
           <section className="assistant-thread" aria-label="AI conversation">
-            {agentEvents.length === 0 ? (
+            {visibleChatMessages.length === 0 ? (
               <div className="assistant-empty">
-                输入任务后，Agent 会在隔离 workspace 中读取上下文、运行工具，并通过 Patch
-                Proposal 进入人工审批。
+                像 IDE 插件聊天框一样描述任务。ByteSibyl 会在当前隔离 workspace 中读取上下文，
+                需要修改文件时生成 Patch Proposal。
               </div>
             ) : (
-              agentEvents.slice(-8).map((event, index) => {
-                if (event.type === 'agent.message') {
-                  return (
-                    <div className="chat-bubble assistant" key={`chat-${index}`}>
-                      {event.content}
-                    </div>
-                  );
-                }
-                if (event.type === 'agent.error') {
-                  return (
-                    <div className="chat-bubble error" key={`chat-${index}`}>
-                      {event.message}
-                    </div>
-                  );
-                }
-                if (event.type === 'agent.done') {
-                  return (
-                    <div className="chat-bubble meta" key={`chat-${index}`}>
-                      Agent Loop completed: {event.finishReason}
-                    </div>
-                  );
-                }
-                if (event.type === 'agent.tool_call') {
-                  return (
-                    <div className="chat-bubble meta" key={`chat-${index}`}>
-                      Tool call: {event.call.name}
-                    </div>
-                  );
-                }
-                if (event.type === 'agent.status') {
-                  return (
-                    <div className="chat-bubble meta" key={`chat-${index}`}>
-                      {event.message}
-                    </div>
-                  );
-                }
-                return null;
-              })
+              visibleChatMessages.map((message) => (
+                <div className={`chat-bubble ${message.role}`} key={message.id}>
+                  {message.content}
+                </div>
+              ))
             )}
           </section>
 
           <div className="agent-run-box codex-compose">
-            <label htmlFor="agent-prompt">Ask ByteSibyl</label>
             <textarea
               id="agent-prompt"
               value={agentPrompt}
               onChange={(event) => setAgentPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  void sendMessage();
+                }
+              }}
               rows={4}
-              placeholder="描述你希望 Agent 在当前隔离工作区完成的任务"
+              placeholder="向 ByteSibyl 发送消息..."
             />
             <div className="compose-actions">
               <button type="button" onClick={() => void createSession()}>
                 新建会话
               </button>
-              <button type="button" disabled={agentRunning} onClick={() => void runAgent()}>
-                {agentRunning ? '运行中...' : '运行 Agent Loop'}
+              <button type="button" disabled={agentRunning || !agentPrompt.trim()} onClick={() => void sendMessage()}>
+                {agentRunning ? '思考中...' : '发送'}
               </button>
               <button type="button" disabled={!agentRunning || !currentRunId} onClick={() => void cancelAgent()}>
                 停止
               </button>
             </div>
           </div>
-
-          <section className="approval-compact" aria-label="Patch approval">
-            <div className="approval-heading">
-              <div>
-                <span>Patch Proposal</span>
-                <strong>{selectedFile?.path ?? '未选择文件'}</strong>
-              </div>
-              <small>{patchProposal?.status ?? 'none'}</small>
-            </div>
-            <textarea
-              value={patchDraft}
-              disabled={!selectedFile}
-              onChange={(event) => setPatchDraft(event.target.value)}
-              rows={5}
-              placeholder="选择文件后，这里会显示可编辑草稿。"
-            />
-            <div className="approval-grid">
-              <button type="button" disabled={!selectedFile} onClick={() => void createPatchPreview()}>
-                生成 Diff
-              </button>
-              <button
-                type="button"
-                disabled={
-                  !patchProposal ||
-                  ['discarded', 'applied', 'approved', 'waiting_approval'].includes(patchProposal.status)
-                }
-                onClick={() => void discardPatch()}
-              >
-                丢弃
-              </button>
-              <button type="button" disabled={!selectedFile} onClick={() => void requestPatchApproval()}>
-                请求审批
-              </button>
-              <button
-                type="button"
-                disabled={!approval || approval.status !== 'pending'}
-                onClick={() => void approvePatch()}
-              >
-                批准
-              </button>
-              <button
-                type="button"
-                disabled={!approval || approval.status !== 'pending'}
-                onClick={() => void rejectPatch()}
-              >
-                拒绝
-              </button>
-              <button
-                type="button"
-                disabled={!patchProposal || patchProposal.status !== 'approved'}
-                onClick={() => void applyPatch()}
-              >
-                应用
-              </button>
-            </div>
-            <div className="patch-flow-hint">{patchFlowHint}</div>
-          </section>
         </aside>
 
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Product P1 workspace isolation</small>
+            <small>Product P2 real web IDE editing</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -886,12 +982,48 @@ export default function App() {
               : '等待 Patch Proposal'}
           </span>
         </div>
+        {patchQueue.length > 0 ? (
+          <div className="patch-queue">
+            {patchQueue.map((proposal) => (
+              <button
+                type="button"
+                key={proposal.id}
+                className={patchProposal?.id === proposal.id ? 'active' : ''}
+                onClick={() => {
+                  setPatchProposal(proposal);
+                  void openFile(proposal.path);
+                }}
+              >
+                <span>{proposal.path}</span>
+                <strong>{proposal.status}</strong>
+              </button>
+            ))}
+          </div>
+        ) : null}
         {patchProposal ? (
-          <pre>
-            {patchProposal.unifiedDiff}
-          </pre>
+          <div className="diff-editor-shell">
+            <DiffEditor
+              key={patchProposal.id}
+              original={
+                openFiles.find((file) => file.path === patchProposal.path)?.originalContent ??
+                selectedFile?.content ??
+                ''
+              }
+              modified={patchProposal.updatedContent ?? patchDraft}
+              language={languageForPath(patchProposal.path)}
+              theme="vs-light"
+              options={{
+                readOnly: true,
+                renderSideBySide: true,
+                minimap: { enabled: false },
+                fontSize: 12,
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+              }}
+            />
+          </div>
         ) : (
-          <div className="diff-empty">编辑 Patch Draft 后生成 proposed diff。</div>
+          <div className="diff-empty">编辑器草稿生成 Diff 后会显示 proposed changes。</div>
         )}
       </div>
     </div>
@@ -954,6 +1086,48 @@ function findFirstFile(node: WorkspaceFileNode): WorkspaceFileNode | null {
 function countFiles(node: WorkspaceFileNode): number {
   if (node.type === 'file') return 1;
   return (node.children ?? []).reduce((total, child) => total + countFiles(child), 0);
+}
+
+function upsertOpenFile(files: OpenFileTab[], next: OpenFileTab): OpenFileTab[] {
+  const exists = files.some((file) => file.path === next.path);
+  if (!exists) return [...files, next].slice(-8);
+  return files.map((file) => (file.path === next.path ? next : file));
+}
+
+function upsertPatchProposal(proposals: PatchProposal[], next: PatchProposal): PatchProposal[] {
+  const exists = proposals.some((proposal) => proposal.id === next.id);
+  if (!exists) return [...proposals, next].slice(-12);
+  return proposals.map((proposal) => (proposal.id === next.id ? next : proposal));
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function languageForPath(path: string): string {
+  const ext = path.split('.').at(-1)?.toLowerCase();
+  switch (ext) {
+    case 'ts':
+      return 'typescript';
+    case 'tsx':
+      return 'typescript';
+    case 'js':
+    case 'jsx':
+      return 'javascript';
+    case 'json':
+      return 'json';
+    case 'css':
+      return 'css';
+    case 'html':
+      return 'html';
+    case 'md':
+      return 'markdown';
+    case 'yml':
+    case 'yaml':
+      return 'yaml';
+    default:
+      return 'plaintext';
+  }
 }
 
 function formatAgentEvent(event: AgentRunEvent): string {

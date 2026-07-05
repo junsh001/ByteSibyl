@@ -1,0 +1,8 @@
+{
+  "id": "ts-typecheck-001",
+  "workspace": "examples/buggy-ts-project",
+  "prompt": "Fix the TypeScript typecheck error.",
+  "successCommands": ["npm run typecheck"],
+  "forbiddenFiles": ["package.json"],
+  "maxChangedFiles": 3
+}

@@ -28,7 +28,8 @@ export interface HealthResponse {
     | 'phase-13-todo-planner'
     | 'phase-14-skills'
     | 'phase-15-hooks'
-    | 'phase-16-trace-replay-observability';
+    | 'phase-16-trace-replay-observability'
+    | 'phase-17-evaluation';
   timestamp: string;
 }
 
@@ -209,6 +210,54 @@ export interface SessionTraceExport {
   commands: CommandTrace[];
   approvals: ApprovalTrace[];
   hooks: HookRecord[];
+}
+
+export interface EvalTask {
+  id: string;
+  workspace: string;
+  prompt: string;
+  successCommands: string[];
+  forbiddenFiles: string[];
+  maxChangedFiles: number;
+}
+
+export interface EvalTaskResult {
+  id: string;
+  passed: boolean;
+  successRate: number;
+  changedFilesCount: number;
+  commandCount: number;
+  toolCallCount: number;
+  approvalCount: number;
+  runtimeSeconds: number;
+  forbiddenActionCount: number;
+  forbiddenFilesModified: string[];
+  commandResults: Pick<ShellCommandResult, 'command' | 'status' | 'exitCode' | 'durationMs'>[];
+  errors: string[];
+}
+
+export interface EvalReport {
+  generatedAt: string;
+  taskCount: number;
+  passedCount: number;
+  metrics: {
+    success_rate: number;
+    changed_files_count: number;
+    command_count: number;
+    tool_call_count: number;
+    approval_count: number;
+    runtime_seconds: number;
+    forbidden_action_count: number;
+  };
+  results: EvalTaskResult[];
+}
+
+export interface EvalTaskListResponse {
+  tasks: EvalTask[];
+}
+
+export interface EvalRunResponse {
+  report: EvalReport;
 }
 
 export interface WorkspaceFileNode {

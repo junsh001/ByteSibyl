@@ -24,6 +24,7 @@ import { config } from './config.js';
 import { createDiagnosticsProvider } from './lsp/index.js';
 import { registerAgentRoutes } from './routes/agent.js';
 import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
+import { registerEvalRoutes } from './routes/eval.js';
 import { registerPatchRoutes } from './routes/patches.js';
 import { registerSelfRepairRoutes } from './routes/self-repair.js';
 import { registerShellRoutes } from './routes/shell.js';
@@ -83,11 +84,12 @@ await registerAgentRoutes(app, {
 await registerPatchRoutes(app, { workspace, hooks, sessionStore });
 await registerShellRoutes(app, { shellRunner, hooks, sessionStore });
 await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
+await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalTasksRoot });
 
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-16-trace-replay-observability',
+  phase: 'phase-17-evaluation',
   timestamp: new Date().toISOString(),
 }));
 

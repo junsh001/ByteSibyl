@@ -26,8 +26,10 @@ function modelProvider(): 'mock' | 'openai_compatible' {
 }
 
 export const config = {
+  rootDir: ROOT,
   port: Number(process.env.PORT ?? 8787),
   workspaceRoot: fromRoot(process.env.WAC_WORKSPACE_ROOT ?? './examples/buggy-ts-project'),
+  evalTasksRoot: fromRoot(process.env.WAC_EVAL_TASKS_ROOT ?? './examples/eval-tasks'),
   skillsRoot: fromRoot(process.env.WAC_SKILLS_ROOT ?? './.skills'),
   webDist: fromRoot(process.env.WEB_DIST ?? './apps/web/dist'),
   sessionLogPath: fromRoot(process.env.WAC_SESSION_LOG_PATH ?? './data/session-log.json'),

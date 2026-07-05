@@ -11,6 +11,7 @@
     { "path": "./packages/planner" },
     { "path": "./packages/skills" },
     { "path": "./packages/hooks" },
+    { "path": "./packages/eval" },
     { "path": "./packages/agent-core" },
     { "path": "./packages/patch-engine" },
     { "path": "./packages/permission" },

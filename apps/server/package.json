@@ -17,6 +17,7 @@
     "@wac/agent": "*",
     "@wac/context-engine": "*",
     "@wac/db": "*",
+    "@wac/eval": "*",
     "@wac/hooks": "*",
     "@wac/lsp-client": "*",
     "@wac/model-provider": "*",

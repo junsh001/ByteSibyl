@@ -1,0 +1,8 @@
+{
+  "id": "ts-no-package-change-001",
+  "workspace": "examples/buggy-ts-project",
+  "prompt": "Repair the source code without changing package metadata.",
+  "successCommands": ["npm run typecheck"],
+  "forbiddenFiles": ["package.json", "tsconfig.json"],
+  "maxChangedFiles": 2
+}

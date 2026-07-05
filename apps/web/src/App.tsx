@@ -6,6 +6,8 @@ import type {
   AgentShellEvent,
   ApprovalRequest,
   DiagnosticsResponse,
+  EvalReport,
+  EvalTask,
   HealthResponse,
   HookRecord,
   ModelProviderInfo,
@@ -34,6 +36,9 @@ export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [tree, setTree] = useState<WorkspaceFileNode | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
+  const [evalTasks, setEvalTasks] = useState<EvalTask[]>([]);
+  const [evalReport, setEvalReport] = useState<EvalReport | null>(null);
+  const [evalRunning, setEvalRunning] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,6 +78,7 @@ export default function App() {
       api.tools(),
       api.skills(),
       api.diagnostics(),
+      api.evalTasks(),
       api.todos(),
     ])
       .then(
@@ -84,6 +90,7 @@ export default function App() {
           toolResult,
           skillResult,
           diagnosticsResult,
+          evalTaskResult,
           todoResult,
         ]) => {
           setHealth(healthResult);
@@ -93,6 +100,7 @@ export default function App() {
           setTools(toolResult.tools);
           setSkills(skillResult.skills);
           setDiagnostics(diagnosticsResult);
+          setEvalTasks(evalTaskResult.tasks);
           setTodos(todoResult.todos);
           const first = findFirstFile(treeResult);
           if (first) {
@@ -149,7 +157,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 16 Trace Replay');
+    const result = await api.createSession('Phase 17 Evaluation');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
@@ -203,7 +211,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 16 Trace Replay')).session;
+      session ?? (await api.createSession('Phase 17 Evaluation')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -318,7 +326,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 16 Trace Replay')).session;
+        session ?? (await api.createSession('Phase 17 Evaluation')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -341,7 +349,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 16 Trace Replay')).session;
+        session ?? (await api.createSession('Phase 17 Evaluation')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -396,7 +404,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 16 Trace Replay')).session;
+        session ?? (await api.createSession('Phase 17 Evaluation')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -444,11 +452,24 @@ export default function App() {
     }
   }
 
+  async function runEvaluation() {
+    setError(null);
+    setEvalRunning(true);
+    try {
+      const result = await api.runEval();
+      setEvalReport(result.report);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEvalRunning(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 16</p>
+          <p className="eyebrow">Phase 17</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -526,7 +547,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Trace Replay 会把模型、工具、文件、命令和审批串成可复盘时间线。</p>
+            <p>Evaluation 会用任务、验证命令和 forbidden files 生成客观 JSON report。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -659,6 +680,45 @@ export default function App() {
             </div>
           </div>
           <TraceViewer trace={sessionTrace} />
+          <div className="eval-box">
+            <div className="eval-header">
+              <div>
+                <div className="todo-title">Evaluation</div>
+                <small>{evalTasks.length} tasks</small>
+              </div>
+              <button type="button" disabled={evalRunning} onClick={() => void runEvaluation()}>
+                {evalRunning ? '运行中' : '运行'}
+              </button>
+            </div>
+            <div className="state-row">
+              <span>Pass</span>
+              <strong>
+                {evalReport ? `${evalReport.passedCount}/${evalReport.taskCount}` : 'not run'}
+              </strong>
+            </div>
+            <div className="state-row">
+              <span>Success rate</span>
+              <strong>
+                {evalReport ? `${Math.round(evalReport.metrics.success_rate * 100)}%` : 'n/a'}
+              </strong>
+            </div>
+            <div className="state-row">
+              <span>Forbidden actions</span>
+              <strong>{evalReport?.metrics.forbidden_action_count ?? 0}</strong>
+            </div>
+            <div className="eval-results">
+              {(evalReport?.results ?? []).slice(0, 5).map((result) => (
+                <div className={result.passed ? 'eval-result passed' : 'eval-result failed'} key={result.id}>
+                  <span>{result.passed ? 'PASS' : 'FAIL'}</span>
+                  <strong>{result.id}</strong>
+                  <small>
+                    commands={result.commandCount} changed={result.changedFilesCount} forbidden=
+                    {result.forbiddenActionCount}
+                  </small>
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="repair-box">
             <div className="todo-title">Self-Repair Loop</div>
             <input
@@ -867,6 +927,10 @@ export default function App() {
               <strong>{sessionTrace?.timeline.length ?? 0}</strong>
             </div>
             <div className="state-row">
+              <span>Eval tasks</span>
+              <strong>{evalTasks.length}</strong>
+            </div>
+            <div className="state-row">
               <span>Context summaries</span>
               <strong>
                 {sessionLog?.runs.reduce(
@@ -947,6 +1011,7 @@ export default function App() {
               <li className={(sessionTrace?.timeline.length ?? 0) > 0 ? 'done' : ''}>
                 Trace Replay
               </li>
+              <li className={evalReport ? 'done' : ''}>Evaluation</li>
             </ul>
           </div>
         </aside>
@@ -954,7 +1019,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 16 replay timeline</small>
+            <small>Phase 17 evaluation metrics</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}

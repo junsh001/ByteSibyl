@@ -759,6 +759,91 @@ button {
   line-height: 1.5;
 }
 
+.eval-box {
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid #e0d7c7;
+  border-radius: 8px;
+  background: #fffaf3;
+}
+
+.eval-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.eval-header small {
+  color: #7c7168;
+  font-size: 12px;
+}
+
+.eval-header button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d7ccbc;
+  border-radius: 7px;
+  background: #fbfaf6;
+  color: #2d2924;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.eval-header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.eval-results {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.eval-result {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 4px 8px;
+  padding: 8px;
+  border: 1px solid #eadfcf;
+  border-radius: 7px;
+  background: #fffdf8;
+  font-size: 12px;
+}
+
+.eval-result span {
+  align-self: start;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #d7d0c2;
+  color: #2d2924;
+  font-weight: 700;
+  text-align: center;
+}
+
+.eval-result strong,
+.eval-result small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eval-result small {
+  grid-column: 2;
+  color: #6f675b;
+}
+
+.eval-result.passed span {
+  background: #668a3e;
+  color: white;
+}
+
+.eval-result.failed span {
+  background: #b3432f;
+  color: white;
+}
+
 .todo-state-list {
   display: grid;
   gap: 7px;

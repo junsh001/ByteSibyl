@@ -1,10 +1,13 @@
 # Web AI Coding Agent Lab Roadmap
 
-This roadmap converts ByteSibyl into a teaching-oriented Web AI Coding Agent
-Lab. The work is intentionally staged so each phase can be explained, tested,
-and published as a tutorial chapter and blog draft.
+This roadmap now has two tracks:
 
-## Phase Order
+1. **Tutorial Lab track**: completed Phase 0-19. It explains and implements the
+   core mechanics of a Web AI Coding Agent.
+2. **Productization track**: active P0 onward. It turns the completed Lab into a
+   usable product.
+
+## Tutorial Lab Track: Completed
 
 | Phase | Name | Primary Outcome |
 |---|---|---|
@@ -29,32 +32,64 @@ and published as a tutorial chapter and blog draft.
 | 18 | Subagents | Planner/coder/reviewer roles with separated permissions |
 | 19 | Engineering Route | Productization gaps: sandboxing, multi-user, plugins, deployment |
 
-## Priority Lanes
+The detailed tutorial track remains in
+`web-ai-coding-agent-tutorial-plan.md`.
 
-### Minimum Usable Agent
+## Productization Track: Active
 
-Complete Phases 0, 1, 2, 3, 4, 6, 7, 8, and 9. This creates the first complete
-Web coding-agent loop: inspect, validate, propose patch, approve, apply, and
-verify.
+The active productization plan is
+`docs/PRODUCTIZATION_DEVELOPMENT_PLAN.md`.
 
-### Model-backed Agent
+| Product Phase | Name | Primary Outcome |
+|---|---|---|
+| P0 | Product Baseline | Freeze product boundaries and align governance |
+| P1 | Project Workspace & Git Isolation | User projects run in isolated branch/worktree workspaces |
+| P2 | Real Web IDE Editing | Monaco-based editing and product-grade diff viewing |
+| P3 | Durable State Store | Sessions, runs, patches, commands, traces, and memories survive restart |
+| P4 | Sandbox Runner | Commands execute in an isolated sandbox provider |
+| P5 | Product Agent Task Loop | Durable task state, memory summaries, resume, and verification loop |
+| P6 | Multi-file Patch & Git Output | Multi-file patch, conflict handling, commit/PR draft output |
+| P7 | Model Routing & Cost Control | Router, fallback, retry, budget, usage dashboard |
+| P8 | UX Hardening | File tree scale, log pagination, trace filtering, error states |
+| P9 | Security & Audit | Policy manifests, secret redaction, immutable audit trail |
+| P10 | Team / Multi-user | Auth, tenants, quota, project permissions |
+| P11 | Plugin / MCP / Skill Ecosystem | Manifest-driven plugins, MCP tools, skill governance |
+| P12 | Continuous Evaluation | Regression evals and release gates |
 
-Complete Phase 10 after the safe local loop exists. This replaces the mock model
-with real provider adapters while keeping tool schemas, permissions, patch
-approval, and shell guardrails as deterministic boundaries.
+## Productization Waves
 
-### Stability and Observability
+### Wave 1: Single-user MVP
 
-Complete Phases 5, 11, 12, 13, 16, and 17. This turns the demo loop into a
-stateful and measurable agent system.
+Complete P1, P2, P3, P4, and a minimal P6.
 
-### Extension
+User value: a user can import a small Git project, ask the agent to change it,
+review a multi-file diff, approve it, and export a commit or patch without
+polluting the original checkout.
 
-Complete Phases 14, 15, 18, and 19 after the single-agent loop is stable.
+### Wave 2: Stable Real-model Tasks
+
+Complete P5, P7, P8, and core P12 eval gates.
+
+User value: a user can continue multi-turn tasks, resume after interruptions,
+see model cost, and rely on stable Web UI feedback.
+
+### Wave 3: Private Beta
+
+Complete P9 plus deployment hardening.
+
+User value: a trusted team can deploy the system in a private environment with
+auditable file, command, model, and approval records.
+
+### Wave 4: Team Product
+
+Complete P10 and P11.
+
+User value: multiple users can share projects, control permissions, and extend
+the agent through governed plugins, skills, and MCP tools.
 
 ## Package Direction
 
-The target architecture separates existing agent behavior into focused packages:
+The current Lab packages remain the starting point:
 
 - `packages/agent-core`: loop, run state, step executor.
 - `packages/model-provider`: model abstraction and provider adapters.
@@ -67,7 +102,18 @@ The target architecture separates existing agent behavior into focused packages:
 - `packages/lsp-client`: diagnostics.
 - `packages/permission`: guardrails, approval policy.
 - `packages/telemetry`: trace, logs, replay, eval records.
+- `packages/skills`: local skill loading and selection.
+- `packages/hooks`: deterministic lifecycle interception.
+- `packages/subagents`: role definitions and subagent summaries.
 - `packages/shared`: dependency-free cross-layer contracts.
 
-Existing packages may be migrated gradually. Do not rename or split them before
-the phase that requires the boundary.
+Productization may add or extend packages for:
+
+- `packages/project-store`: project registry and workspace metadata.
+- `packages/git-workspace`: clone, branch, worktree, changed-file status.
+- `packages/sandbox-runner`: Docker or other sandbox providers.
+- `packages/memory`: memory summaries, retrieval, and persistence contracts.
+- `packages/audit`: policy-aware audit trail and redaction helpers.
+- `packages/plugin-system`: plugin, MCP, and skill manifest governance.
+
+Do not introduce these packages before their product phase requires them.

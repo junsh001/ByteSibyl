@@ -1,8 +1,10 @@
 # Blog Plan
 
+## Tutorial Lab Series
+
 Series title: 从 0 到 1 构建 Web AI Coding Agent
 
-## Publishing Goals
+### Publishing Goals
 
 - Tutorial chapters under `docs/tutorial/` and blog drafts under `docs/blog/`
   are written in Chinese by default.
@@ -14,7 +16,7 @@ Series title: 从 0 到 1 构建 Web AI Coding Agent
 - Show engineering tradeoffs, not only final code.
 - Make boundaries explicit: what exists now, what is deliberately deferred.
 
-## Article List
+### Article List
 
 | Phase | Draft |
 |---|---|
@@ -39,13 +41,45 @@ Series title: 从 0 到 1 构建 Web AI Coding Agent
 | 18 | `docs/blog/18-small-focused-agents.md` |
 | 19 | `docs/blog/19-from-web-ai-coding-agent-lab-to-product.md` |
 
-## Standard Article Structure
+## Productization Series
+
+Series title: 把 Web AI Coding Agent Lab 做成可用产品
+
+Productization phases still require Chinese tutorial chapters and Chinese blog
+drafts. The format changes:
+
+- Tutorial chapters are product implementation guides: requirements, migration,
+  code changes, validation, rollback, operational notes.
+- Blog drafts are product-engineering articles: user value, risks, architecture
+  tradeoffs, rollout strategy, security boundary, and remaining limitations.
+
+### Product Article List
+
+| Product Phase | Tutorial | Blog |
+|---|---|---|
+| P0 | `docs/tutorial/product-phase-00-product-baseline.md` | `docs/blog/product-phase-00-product-baseline.md` |
+| P1 | `docs/tutorial/product-phase-01-project-workspace-git-isolation.md` | `docs/blog/product-phase-01-project-workspace-git-isolation.md` |
+| P2 | `docs/tutorial/product-phase-02-real-web-ide-editing.md` | `docs/blog/product-phase-02-real-web-ide-editing.md` |
+| P3 | `docs/tutorial/product-phase-03-durable-state-store.md` | `docs/blog/product-phase-03-durable-state-store.md` |
+| P4 | `docs/tutorial/product-phase-04-sandbox-runner.md` | `docs/blog/product-phase-04-sandbox-runner.md` |
+| P5 | `docs/tutorial/product-phase-05-product-agent-task-loop.md` | `docs/blog/product-phase-05-product-agent-task-loop.md` |
+| P6 | `docs/tutorial/product-phase-06-multi-file-patch-git-output.md` | `docs/blog/product-phase-06-multi-file-patch-git-output.md` |
+| P7 | `docs/tutorial/product-phase-07-model-routing-cost-control.md` | `docs/blog/product-phase-07-model-routing-cost-control.md` |
+| P8 | `docs/tutorial/product-phase-08-ux-hardening.md` | `docs/blog/product-phase-08-ux-hardening.md` |
+| P9 | `docs/tutorial/product-phase-09-security-audit.md` | `docs/blog/product-phase-09-security-audit.md` |
+| P10 | `docs/tutorial/product-phase-10-team-multi-user.md` | `docs/blog/product-phase-10-team-multi-user.md` |
+| P11 | `docs/tutorial/product-phase-11-plugin-mcp-skill-ecosystem.md` | `docs/blog/product-phase-11-plugin-mcp-skill-ecosystem.md` |
+| P12 | `docs/tutorial/product-phase-12-continuous-evaluation.md` | `docs/blog/product-phase-12-continuous-evaluation.md` |
+
+### Product Blog Structure
 
 1. 标题。
-2. 问题背景。
-3. 常见误区。
-4. 核心设计思想。
-5. 最小实现。
-6. 运行效果。
-7. 工程取舍。
-8. 总结。
+2. 用户问题和产品目标。
+3. 当前 Lab 能力为什么不够。
+4. 核心工程设计。
+5. 安全、权限、Memory、Tool、Skill、Context 影响。
+6. Web UI 变化。
+7. 验证和发布策略。
+8. 迁移或回滚说明。
+9. 当前限制。
+10. 下一阶段。

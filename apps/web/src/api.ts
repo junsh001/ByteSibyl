@@ -21,6 +21,7 @@ import type {
   StartSelfRepairRequest,
   StartSelfRepairResponse,
   SessionLogResponse,
+  SessionTraceExport,
   ToolCallRequest,
   ToolListResponse,
   ToolResult,
@@ -69,6 +70,8 @@ export const api = {
     ),
   sessionLog: (sessionId: string) =>
     fetch(`/api/sessions/${sessionId}/log`).then(json<SessionLogResponse>),
+  sessionTrace: (sessionId: string) =>
+    fetch(`/api/sessions/${sessionId}/trace`).then(json<SessionTraceExport>),
   createPatchPreview: (request: CreatePatchPreviewRequest) =>
     fetch('/api/patches/preview', {
       method: 'POST',

@@ -16,6 +16,7 @@ import type {
   SkillInfo,
   SkillSelection,
   SessionLogResponse,
+  SessionTraceExport,
   ToolDefinition,
   ToolResult,
   TodoItem,
@@ -25,6 +26,7 @@ import type {
 import { api, connectSessionEvents } from './api';
 import { countDiagnostics, formatDiagnosticTimestamp } from './features/diagnostics';
 import { TodoPanel } from './features/todo-panel';
+import { TraceViewer } from './features/trace-viewer';
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -57,6 +59,7 @@ export default function App() {
   const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
   const [session, setSession] = useState<AgentSession | null>(null);
   const [sessionLog, setSessionLog] = useState<SessionLogResponse | null>(null);
+  const [sessionTrace, setSessionTrace] = useState<SessionTraceExport | null>(null);
   const [events, setEvents] = useState<AgentShellEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const stopAgentStreamRef = useRef<(() => void) | null>(null);
@@ -146,17 +149,22 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 15 Hooks');
+    const result = await api.createSession('Phase 16 Trace Replay');
     setSession(result.session);
     setSessionLog(null);
+    setSessionTrace(null);
     setEvents([{ type: 'session.created', session: result.session }]);
   }
 
   async function refreshSessionLog(targetSession = session) {
     if (!targetSession) return;
-    const result = await api.sessionLog(targetSession.id);
-    setSession(result.session);
-    setSessionLog(result);
+    const [logResult, traceResult] = await Promise.all([
+      api.sessionLog(targetSession.id),
+      api.sessionTrace(targetSession.id),
+    ]);
+    setSession(logResult.session);
+    setSessionLog(logResult);
+    setSessionTrace(traceResult);
   }
 
   async function refreshDiagnostics() {
@@ -195,7 +203,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 15 Hooks')).session;
+      session ?? (await api.createSession('Phase 16 Trace Replay')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -310,7 +318,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 15 Hooks')).session;
+        session ?? (await api.createSession('Phase 16 Trace Replay')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -333,7 +341,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 15 Hooks')).session;
+        session ?? (await api.createSession('Phase 16 Trace Replay')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -388,7 +396,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 15 Hooks')).session;
+        session ?? (await api.createSession('Phase 16 Trace Replay')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -440,7 +448,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 15</p>
+          <p className="eyebrow">Phase 16</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -518,7 +526,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Hooks 会在工具调用、文件编辑和命令执行边界做确定性拦截与记录。</p>
+            <p>Trace Replay 会把模型、工具、文件、命令和审批串成可复盘时间线。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -650,6 +658,7 @@ export default function App() {
               )}
             </div>
           </div>
+          <TraceViewer trace={sessionTrace} />
           <div className="repair-box">
             <div className="todo-title">Self-Repair Loop</div>
             <input
@@ -854,6 +863,10 @@ export default function App() {
               <strong>{sessionLog?.hooks.length ?? 0}</strong>
             </div>
             <div className="state-row">
+              <span>Trace events</span>
+              <strong>{sessionTrace?.timeline.length ?? 0}</strong>
+            </div>
+            <div className="state-row">
               <span>Context summaries</span>
               <strong>
                 {sessionLog?.runs.reduce(
@@ -931,6 +944,9 @@ export default function App() {
               <li className={todos.length > 0 ? 'done' : ''}>Todo Planner</li>
               <li className={currentSkill ? 'done' : ''}>Skills</li>
               <li className={(sessionLog?.hooks.length ?? 0) > 0 ? 'done' : ''}>Hooks</li>
+              <li className={(sessionTrace?.timeline.length ?? 0) > 0 ? 'done' : ''}>
+                Trace Replay
+              </li>
             </ul>
           </div>
         </aside>
@@ -938,7 +954,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 15 Hooks trace</small>
+            <small>Phase 16 replay timeline</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}

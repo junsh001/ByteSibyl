@@ -27,7 +27,8 @@ export interface HealthResponse {
     | 'phase-12-context-engine'
     | 'phase-13-todo-planner'
     | 'phase-14-skills'
-    | 'phase-15-hooks';
+    | 'phase-15-hooks'
+    | 'phase-16-trace-replay-observability';
   timestamp: string;
 }
 
@@ -108,6 +109,105 @@ export interface SessionLogResponse {
   commands: ShellCommandResult[];
   repairs: SelfRepairAttempt[];
   modelCalls: ModelCallRecord[];
+  hooks: HookRecord[];
+}
+
+export type TraceEntryKind =
+  | 'session'
+  | 'agent_event'
+  | 'model_call'
+  | 'tool_call'
+  | 'tool_result'
+  | 'file_edit'
+  | 'command'
+  | 'approval'
+  | 'hook';
+
+export interface TraceTimelineEntry {
+  id: string;
+  sessionId: SessionId;
+  runId?: AgentRunId;
+  kind: TraceEntryKind;
+  title: string;
+  summary: string;
+  status?: string;
+  refId?: string;
+  timestamp: string;
+  data: unknown;
+}
+
+export interface ModelCallTrace {
+  id: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
+  provider: ModelProviderKind;
+  model: string;
+  status: ModelCallStatus;
+  latencyMs: number;
+  usage?: ModelUsage;
+  requestSummary: string;
+  responseSummary?: string;
+  error?: string;
+  timestamp: string;
+}
+
+export interface FileEditEvidence {
+  lineCount: number;
+  sample: string[];
+}
+
+export interface FileEditTrace {
+  id: PatchProposalId;
+  sessionId?: SessionId;
+  path: string;
+  status: PatchProposalStatus;
+  additions: number;
+  deletions: number;
+  before: FileEditEvidence;
+  after: FileEditEvidence;
+  unifiedDiff: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommandTrace {
+  id: string;
+  sessionId?: SessionId;
+  command: string;
+  argv: string[];
+  cwd: string;
+  safety: ShellCommandSafety;
+  status: ShellCommandStatus;
+  exitCode?: number;
+  durationMs: number;
+  stdoutSummary: string;
+  stderrSummary: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface ApprovalTrace {
+  id: ApprovalRequestId;
+  sessionId: SessionId;
+  action: PermissionActionKind;
+  subjectId: string;
+  permission: ToolPermission;
+  status: ApprovalStatus;
+  reason: string;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string;
+}
+
+export interface SessionTraceExport {
+  session: AgentSession;
+  generatedAt: string;
+  timeline: TraceTimelineEntry[];
+  modelCalls: ModelCallTrace[];
+  toolCalls: ToolCallTrace[];
+  fileEdits: FileEditTrace[];
+  commands: CommandTrace[];
+  approvals: ApprovalTrace[];
   hooks: HookRecord[];
 }
 
@@ -484,11 +584,15 @@ export interface ToolResult {
 }
 
 export interface ToolCallTrace {
+  id?: string;
+  sessionId?: SessionId;
+  runId?: AgentRunId;
   name: string;
   permission: ToolPermission;
   input: unknown;
   ok: boolean;
   error?: string;
+  outputSummary?: string;
   startedAt: string;
   finishedAt: string;
 }

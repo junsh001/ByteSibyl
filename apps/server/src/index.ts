@@ -87,7 +87,7 @@ await registerSelfRepairRoutes(app, { shellRunner, workspace, sessionStore });
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-15-hooks',
+  phase: 'phase-16-trace-replay-observability',
   timestamp: new Date().toISOString(),
 }));
 
@@ -119,6 +119,15 @@ app.get('/api/sessions/:id/log', async (req, reply) => {
   const { id } = req.params as { id: SessionId };
   try {
     return sessionStore.getSessionLog(id);
+  } catch {
+    return reply.code(404).send({ error: 'session not found' });
+  }
+});
+
+app.get('/api/sessions/:id/trace', async (req, reply) => {
+  const { id } = req.params as { id: SessionId };
+  try {
+    return sessionStore.getSessionTrace(id);
   } catch {
     return reply.code(404).send({ error: 'session not found' });
   }

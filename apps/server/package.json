@@ -28,6 +28,7 @@
     "@wac/shell-runner": "*",
     "@wac/shared": "*",
     "@wac/skills": "*",
+    "@wac/subagents": "*",
     "@wac/telemetry": "*",
     "@wac/tool-system": "*",
     "@wac/workspace": "*",

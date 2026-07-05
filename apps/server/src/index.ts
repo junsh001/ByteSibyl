@@ -8,6 +8,7 @@ import { createModelProvider } from '@wac/model-provider';
 import { TodoPlanner } from '@wac/planner';
 import { ShellRunner } from '@wac/shell-runner';
 import { SkillRegistry } from '@wac/skills';
+import { SubagentCoordinator } from '@wac/subagents';
 import { SessionStore } from '@wac/telemetry';
 import { WorkspaceService } from '@wac/workspace';
 import { ToolRunner, createWorkspaceToolRegistry } from '@wac/tool-system';
@@ -18,6 +19,7 @@ import {
   type CreateAgentSessionResponse,
   type HealthResponse,
   type ModelProviderStatusResponse,
+  type SubagentListResponse,
   type SessionId,
 } from '@wac/shared';
 import { config } from './config.js';
@@ -36,6 +38,7 @@ import { registerWorkspaceRoutes } from './routes/workspace.js';
 const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
 const skillRegistry = await SkillRegistry.loadFromDirectory(config.skillsRoot);
+const subagents = new SubagentCoordinator();
 const hooks = new HookRegistry();
 const workspace = new WorkspaceService(config.workspaceRoot);
 const shellRunner = new ShellRunner({ workspaceRoot: config.workspaceRoot });
@@ -78,6 +81,7 @@ await registerAgentRoutes(app, {
   contextEngine,
   planner,
   skillRegistry,
+  subagents,
   sessionStore,
   hooks,
 });
@@ -89,12 +93,16 @@ await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalT
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-17-evaluation',
+  phase: 'phase-18-subagents',
   timestamp: new Date().toISOString(),
 }));
 
 app.get('/api/model-provider/status', async (): Promise<ModelProviderStatusResponse> => ({
   provider: model.info,
+}));
+
+app.get('/api/subagents', async (): Promise<SubagentListResponse> => ({
+  subagents: subagents.list(),
 }));
 
 app.post('/api/sessions', async (req): Promise<CreateAgentSessionResponse> => {

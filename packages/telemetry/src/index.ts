@@ -615,6 +615,8 @@ function summarizeEvent(event?: AgentRunEvent): string {
       return event.reason;
     case 'agent.skill_selected':
       return event.selection.reason;
+    case 'agent.subagent_summary':
+      return event.summary.summaries.map((summary) => `${summary.role}:${summary.permission}`).join(', ');
     case 'agent.model_call':
       return event.call.responseSummary ?? event.call.requestSummary;
     case 'agent.message':

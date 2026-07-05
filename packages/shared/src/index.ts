@@ -29,7 +29,8 @@ export interface HealthResponse {
     | 'phase-14-skills'
     | 'phase-15-hooks'
     | 'phase-16-trace-replay-observability'
-    | 'phase-17-evaluation';
+    | 'phase-17-evaluation'
+    | 'phase-18-subagents';
   timestamp: string;
 }
 
@@ -73,6 +74,7 @@ export type AgentRunStepType =
   | 'context_summary'
   | 'todo'
   | 'skill'
+  | 'subagent'
   | 'hook'
   | 'model_call'
   | 'tool_call'
@@ -361,6 +363,42 @@ export interface SkillSelection {
 
 export interface SkillListResponse {
   skills: SkillInfo[];
+}
+
+export type SubagentRole = 'planner' | 'coder' | 'reviewer';
+
+export type SubagentPermission = 'read_only' | 'write_patch_with_approval';
+
+export interface SubagentDefinition {
+  role: SubagentRole;
+  name: string;
+  systemPrompt: string;
+  permission: SubagentPermission;
+  responsibilities: string[];
+}
+
+export interface SubagentActionDecision {
+  action: PermissionActionKind | 'review_diff';
+  effect: PermissionDecisionEffect;
+  reason: string;
+}
+
+export interface SubagentSummary {
+  role: SubagentRole;
+  name: string;
+  summary: string;
+  permission: SubagentPermission;
+  decisions: SubagentActionDecision[];
+}
+
+export interface SubagentRunSummary {
+  task: string;
+  summaries: SubagentSummary[];
+  createdAt: string;
+}
+
+export interface SubagentListResponse {
+  subagents: SubagentDefinition[];
 }
 
 export type HookPhase =
@@ -745,6 +783,10 @@ export type AgentRunEvent =
   | {
       type: 'agent.skill_selected';
       selection: SkillSelection;
+    }
+  | {
+      type: 'agent.subagent_summary';
+      summary: SubagentRunSummary;
     }
   | {
       type: 'agent.model_call';

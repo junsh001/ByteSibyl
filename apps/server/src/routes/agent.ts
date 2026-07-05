@@ -5,6 +5,7 @@ import type { HookRegistry } from '@wac/hooks';
 import type { ModelProvider } from '@wac/model-provider';
 import type { TodoPlanner } from '@wac/planner';
 import type { SkillRegistry } from '@wac/skills';
+import type { SubagentCoordinator } from '@wac/subagents';
 import {
   sseFrame,
   type AgentRunEvent,
@@ -24,6 +25,7 @@ export async function registerAgentRoutes(
     contextEngine: ContextEngine;
     planner: TodoPlanner;
     skillRegistry: SkillRegistry;
+    subagents: SubagentCoordinator;
     sessionStore: SessionStore;
     hooks: HookRegistry;
   },
@@ -80,6 +82,7 @@ export async function registerAgentRoutes(
           contextEngine: deps.contextEngine,
           planner: deps.planner,
           skillRegistry: deps.skillRegistry,
+          subagents: deps.subagents,
           runId: run.id,
           maxIterations: 6,
           signal: controller.signal,
@@ -186,6 +189,8 @@ function classifyStep(event: AgentRunEvent): AgentRunStepType {
       return 'todo';
     case 'agent.skill_selected':
       return 'skill';
+    case 'agent.subagent_summary':
+      return 'subagent';
     case 'agent.tool_result':
       return event.result.hooks?.some((hook) => hook.status === 'blocked') ? 'hook' : 'tool_result';
     case 'agent.model_call':
@@ -217,6 +222,8 @@ function titleForEvent(event: AgentRunEvent): string {
       return `Todo updated: ${event.reason}`;
     case 'agent.skill_selected':
       return `Skill selected: ${event.selection.skill.name}`;
+    case 'agent.subagent_summary':
+      return `Subagents planned: ${event.summary.summaries.map((item) => item.role).join(', ')}`;
     case 'agent.model_call':
       return `Model call ${event.call.provider}/${event.call.model} ${event.call.status}`;
     case 'agent.message':

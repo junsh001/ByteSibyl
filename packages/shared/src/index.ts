@@ -303,6 +303,37 @@ export interface ReadWorkspaceFileResponse {
   content: string;
 }
 
+export interface WriteWorkspaceFileRequest {
+  path: string;
+  content: string;
+}
+
+export interface WriteWorkspaceFileResponse {
+  path: string;
+  content: string;
+}
+
+export type WorkspaceEntryKind = 'file' | 'dir';
+
+export interface CreateWorkspaceEntryRequest {
+  path: string;
+  kind: WorkspaceEntryKind;
+  content?: string;
+}
+
+export interface RenameWorkspaceEntryRequest {
+  fromPath: string;
+  toPath: string;
+}
+
+export interface DeleteWorkspaceEntryRequest {
+  path: string;
+}
+
+export interface WorkspaceMutationResponse {
+  tree: WorkspaceFileNode;
+}
+
 export interface SearchTextMatch {
   path: string;
   line: number;

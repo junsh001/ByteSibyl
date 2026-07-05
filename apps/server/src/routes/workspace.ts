@@ -1,10 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { WorkspacePathError, WorkspaceService } from '@wac/workspace';
 import type {
+  CreateWorkspaceEntryRequest,
+  DeleteWorkspaceEntryRequest,
   ReadWorkspaceFileResponse,
+  RenameWorkspaceEntryRequest,
   SearchTextResponse,
+  WorkspaceMutationResponse,
   WorkspaceFileNode,
   WorkspaceInfo,
+  WriteWorkspaceFileRequest,
+  WriteWorkspaceFileResponse,
 } from '@wac/shared';
 
 export async function registerWorkspaceRoutes(
@@ -30,6 +36,74 @@ export async function registerWorkspaceRoutes(
       return response;
     } catch (err) {
       const status = err instanceof WorkspacePathError ? 403 : 404;
+      return reply.code(status).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/workspace/file', async (req, reply) => {
+    const body = (req.body ?? {}) as Partial<WriteWorkspaceFileRequest>;
+    if (!body.path || body.content === undefined) {
+      return reply.code(400).send({ error: 'path and content are required' });
+    }
+
+    try {
+      await workspace.writeTextFile(body.path, body.content);
+      const response: WriteWorkspaceFileResponse = { path: body.path, content: body.content };
+      return response;
+    } catch (err) {
+      const status = err instanceof WorkspacePathError ? 403 : 400;
+      return reply.code(status).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/workspace/entry', async (req, reply) => {
+    const body = (req.body ?? {}) as Partial<CreateWorkspaceEntryRequest>;
+    if (!body.path || !body.kind) {
+      return reply.code(400).send({ error: 'path and kind are required' });
+    }
+
+    try {
+      if (body.kind === 'dir') {
+        await workspace.createDirectory(body.path);
+      } else {
+        await workspace.createTextFile(body.path, body.content ?? '');
+      }
+      const response: WorkspaceMutationResponse = { tree: await workspace.tree() };
+      return response;
+    } catch (err) {
+      const status = err instanceof WorkspacePathError ? 403 : 400;
+      return reply.code(status).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.patch('/api/workspace/entry', async (req, reply) => {
+    const body = (req.body ?? {}) as Partial<RenameWorkspaceEntryRequest>;
+    if (!body.fromPath || !body.toPath) {
+      return reply.code(400).send({ error: 'fromPath and toPath are required' });
+    }
+
+    try {
+      await workspace.renameEntry(body.fromPath, body.toPath);
+      const response: WorkspaceMutationResponse = { tree: await workspace.tree() };
+      return response;
+    } catch (err) {
+      const status = err instanceof WorkspacePathError ? 403 : 400;
+      return reply.code(status).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.delete('/api/workspace/entry', async (req, reply) => {
+    const body = (req.body ?? {}) as Partial<DeleteWorkspaceEntryRequest>;
+    if (!body.path) {
+      return reply.code(400).send({ error: 'path is required' });
+    }
+
+    try {
+      await workspace.deleteEntry(body.path);
+      const response: WorkspaceMutationResponse = { tree: await workspace.tree() };
+      return response;
+    } catch (err) {
+      const status = err instanceof WorkspacePathError ? 403 : 400;
       return reply.code(status).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });

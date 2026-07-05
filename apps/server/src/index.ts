@@ -93,7 +93,7 @@ await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalT
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-18-subagents',
+  phase: 'phase-19-engineering-route',
   timestamp: new Date().toISOString(),
 }));
 

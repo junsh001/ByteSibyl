@@ -1,125 +1,102 @@
-# CodeForge · AI Coding 学习场
+# Web AI Coding Agent Lab
 
-> 随时随地的 **AI 结对编程**，同时通过闯关小游戏，亲手学会 **Skills / MCP / Agent**，搭出一个属于自己的 AI agent。
-> A web AI coding agent **and** a hands-on game that teaches modern LLM concepts — powered by DeepSeek.
+Web AI Coding Agent Lab 是一个学习导向的 Web Coding Agent 实验项目。它把 coding agent 的核心机制拆成阶段实现：Workspace、Tool System、Agent Loop、Session State、Patch Engine、Permission、Shell Runner、Self-Repair、Model Provider、LSP Diagnostics、Context Engine、Todo Planner、Skills、Hooks、Trace、Evaluation、Subagents，以及最后的工程化路线。
 
-CodeForge 是两件事的合体：
+项目目标不是复刻 Claude Code、Codex、OpenCode 或完整 IDE，而是让读者能在 Web UI 中看到 agent 如何读上下文、调用结构化工具、生成 Patch Proposal、等待 Human-in-the-loop approval、运行验证命令、记录 Trace，并通过 Eval 衡量结果。
 
-1. **一个真正能干活的 AI 编程 agent** —— 浏览器里描述需求，AI 自主读文件、写代码、跑命令、看结果、修 bug，直到任务完成（标准 agentic loop + function calling，参考 OpenHands / Cline / SWE-agent 的最佳实践）。
-2. **一个 5 关闯关教程** —— 从「一句提示词」一路通到「一个会自己调工具的 agent」，每关都在内置编辑器里真实写代码，由 AI 即时批改、解锁、给 XP。
+## 当前状态
 
----
+当前主线完成到 Phase 19：工程化路线。
 
-## ✨ 功能 Features
+- Web 是主要产品入口。
+- Agent Core 独立于 Web UI。
+- Shared contracts 位于 `packages/shared`。
+- 文件读取、Patch、Shell、Approval、Hooks、Trace、Eval、Subagents 已有教学级最小实现。
+- 工程化文档已总结从教学 Lab 到产品可用版本的差距。
 
-- **流式 agentic 编程**：SSE 实时流式输出思考、工具调用（`read_file` / `write_file` / `edit_file` / `search` / `run`）、文件改动 diff、运行结果。
-- **内置编辑器 + 终端**：Monaco 代码编辑器、xterm 真实终端、文件树，改完一键运行。
-- **沙箱执行**：后端受限子进程沙箱（超时、输出上限、环境变量清洗、危险命令拦截、进程组级 kill），支持 **JS 与 Python**。
-- **教程闯关游戏**：Prompt → Tool Use → Skills → MCP → Agent，中英双语，AI 评分 + 进度/XP 持久化。
-- **Ask / Agent 双模式 + 深度思考**：`ask` 只读不改；`agent` 全自动；可切换 `deepseek-reasoner` 深度推理。
-- **中英双语 UI**，简洁暗色 IDE 风格。
-- **内置评测**：一条命令对自己跑一个 Aider-Polyglot 风格的多语言基准，量化 agent 能力（见下）。
+## 目录结构
 
-## 🧱 架构 Architecture
+```text
+apps/
+  web/                  React + Vite Web UI
+  server/               Fastify API、SSE、session、依赖组装
 
-Node monorepo（npm workspaces，全 TypeScript）：
+packages/
+  agent-core/           Agent Loop
+  model-provider/       mock 与 OpenAI-compatible provider
+  tool-system/          结构化工具注册、schema 校验、工具执行协议
+  workspace/            文件树、读文件、搜索、workspace 边界
+  patch-engine/         Diff Preview、Patch Proposal、apply
+  permission/           Guardrails、Approval policy
+  shell-runner/         命令分类、执行、超时和输出捕获
+  self-repair/          测试失败后的修复 proposal
+  lsp-client/           TypeScript diagnostics
+  context-engine/       Repo map、相关文件选择、context budget
+  planner/              Todo 状态机
+  skills/               本地 SKILL.md 加载与选择
+  hooks/                before/after 拦截与记录
+  telemetry/            Session log、Trace、Replay 数据
+  eval/                 任务评测
+  subagents/            planner/coder/reviewer 角色隔离
+  shared/               跨层 DTO 和事件类型
 
-```
-webAiCoding/
-├─ apps/web         React + Vite + Tailwind + Monaco + xterm（简洁 IDE 前端）
-├─ apps/server      Fastify + SSE（agent 接口、沙箱、课程批改、静态托管）
-├─ packages/agent   agent 核心：DeepSeek 流式客户端、工具、agentic loop、diff、workspace
-├─ packages/db      better-sqlite3 仓储层（接口化，可切 Postgres）
-├─ packages/shared  前后端共享的协议类型（SSE 事件、工具 schema、课程模型）
-├─ scripts/         冒烟测试 + 评测 harness
-└─ Dockerfile / docker-compose.yml
-```
-
-数据流：浏览器 → `POST /api/projects/:id/agent` → 服务端 `runAgent()` 驱动 DeepSeek function-calling 循环 → 工具在沙箱里执行 → 事件以 SSE 流式回传 → 前端实时渲染。
-
-## 🚀 快速开始 Quickstart（开发模式）
-
-前置：**Node ≥ 20**，一个 **DeepSeek API Key**，以及（可选）`python3` 用于跑 Python。
-
-```bash
-# 1) 安装依赖
-npm install
-
-# 2) 配置 key（服务端读取 deepseek_KEY，也兼容 DEEPSEEK_API_KEY）
-cp .env.example .env
-#   编辑 .env，填入 deepseek_KEY=sk-xxxx
-
-# 3) 连通性自检
-npm run smoke
-
-# 4) 同时启动前后端（web :5173，server :8787，已配置代理）
-npm run dev
+docs/
+  milestones/           每阶段边界
+  design/               每阶段设计说明
+  tutorial/             中文教程章节
+  blog/                 中文博客草稿
+  engineering/          Phase 19 工程化审计与路线文档
 ```
 
-打开 http://localhost:5173 即可。
+## 快速开始
 
-## 📦 生产部署 Deploy
-
-**方式 A — 纯 Node（无需 Docker）**
 ```bash
 npm install
-npm run build      # 构建前端 SPA 到 apps/web/dist
-deepseek_KEY=sk-xxx npm run start   # 服务端在 :8787 同时托管 SPA 和 API
+npm run typecheck
+npm run build
+PORT=8787 MODEL_PROVIDER=mock npm start
 ```
 
-**方式 B — Docker / Compose**
-```bash
-echo "deepseek_KEY=sk-xxx" > .env
-docker compose up -d --build
-# 访问 http://<host>:8787 ；数据持久化在命名卷 codeforge-data
+打开 `http://localhost:8787` 使用 Web UI。
+
+接入真实 DeepSeek / OpenAI-compatible provider 时，在 `.env` 中设置：
+
+```text
+MODEL_PROVIDER=openai_compatible
+deepseek_KEY=sk-...
+MODEL_BASE_URL=https://api.deepseek.com
+MODEL_NAME=deepseek-chat
 ```
-镜像内含 `python3` + `bash`，容器化后沙箱隔离性更好。
 
-## 📊 评测与定位 Benchmarking
-
-我们用一个**内置的多语言 pass@1 基准**（Aider-Polyglot 风格：按规格写代码，再用隐藏测试验证）量化 agent 能力：
+## 常用命令
 
 ```bash
+npm run typecheck
+npm run build
 npm run eval
+npm --workspace @wac/server run build
 ```
 
-它会让 agent 实际解 N 道 JS/Python 题、在沙箱里运行验证，并打印 `pass@1` 分数。
+## 运行时数据
 
-**为什么用这套指标？** 2026 年最具影响力的 AI 编程榜单是 **SWE-bench (Verified/Pro)**、**Aider Polyglot**、**Terminal-Bench**。其中 Aider Polyglot 轻量、跨 6 种语言、DeepSeek 有公开基线，最适合小团队自评。
+`data/` 和 `workspaces/` 是本地运行时目录，已被 `.gitignore` 忽略：
 
-**参考水位（"前 10 / 较优档"）：** Aider Polyglot ≥ **80%**，SWE-bench Verified ≥ **65–70%**。
-DeepSeek-V3.2 公开成绩 ≈ Aider 74% / SWE-bench Verified 68% / LiveCodeBench 90%——本身就在较优档，且推理成本约为前沿模型的 ~1%。**我们的定位：前 10 档能力，~1% 的成本。**
+- `data/session-log.json`：当前 JSON SessionStore。
+- `data/*.db*`：历史 SQLite 原型或本地实验文件，不属于当前提交产物。
+- `workspaces/`：本地临时 workspace。
 
-## 🎮 教程闯关 The Learning Track
+## 工程化路线
 
-| 关卡 | 概念 | 你会做出 |
-|---|---|---|
-| 1 | Prompt | 一段 system prompt |
-| 2 | Tool Use | 一个 function-calling 工具 schema |
-| 3 | Skills | 一个 `SKILL.md` 能力包 |
-| 4 | MCP | 一份 MCP server 配置 |
-| 5 | Agent | 一个最小可运行的 agent 主循环（毕业项目）|
+Phase 19 文档重点说明：
 
-每关在右侧编辑器真实写代码，点「检查我的作业」由 AI 按 rubric 批改，通过即解锁下一关并获得 XP。
+- 无用目录与历史原型包清理。
+- 长短期记忆、工具管理、上下文管理、skill 加载的完成情况和改进方向。
+- 离用户真正可用的小型项目开发体验还差什么。
+- 给下一个会话接手的项目进度和交接摘要。
 
-## 🔒 安全说明 Security
+入口文档：
 
-- 沙箱为**受限子进程**（非完整容器隔离）：超时 / 输出上限 / 环境变量清洗（绝不泄漏 API Key 给用户代码）/ 危险命令模式拦截 / 进程组 kill。
-- 文件操作严格限制在项目工作区内，拒绝 `..` 越权与绝对路径逃逸。
-- 当前为**单用户、免登录**设计，适合个人自用或可信网络。对外公开部署前，建议加上认证与更强的容器/虚拟机级沙箱隔离。
-
-## ⚙️ 关键环境变量
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `deepseek_KEY` | — | DeepSeek API Key（必填；兼容 `DEEPSEEK_API_KEY`）|
-| `DEEPSEEK_MODEL` | `deepseek-chat` | 主模型 |
-| `DEEPSEEK_REASONER_MODEL` | `deepseek-reasoner` | 深度思考模型 |
-| `PORT` | `8787` | 服务端口 |
-| `DATABASE_URL` | `./data/app.db` | SQLite 路径 |
-| `WORKSPACE_ROOT` | `./workspaces` | 用户项目根目录 |
-| `SANDBOX_TIMEOUT_MS` | `20000` | 单条命令超时 |
-
----
-
-构建于 DeepSeek · 灵感来自 OpenHands / Cline / bolt.new / Aider。
+- `docs/engineering/repository-audit.md`
+- `docs/engineering/runtime-capability-review.md`
+- `docs/engineering/product-readiness-gap.md`
+- `docs/HANDOFF.md`

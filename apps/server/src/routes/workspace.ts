@@ -13,6 +13,7 @@ export async function registerWorkspaceRoutes(
 ): Promise<void> {
   app.get('/api/workspace', async (): Promise<WorkspaceInfo> => ({
     rootName: workspace.root.split('/').at(-1) || workspace.root,
+    rootPath: workspace.root,
   }));
 
   app.get('/api/workspace/tree', async (): Promise<WorkspaceFileNode> => workspace.tree());

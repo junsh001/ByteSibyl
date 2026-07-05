@@ -12,6 +12,7 @@ import type {
   HookRecord,
   ModelProviderInfo,
   PatchProposal,
+  ProjectRecord,
   SearchTextMatch,
   SelfRepairAttempt,
   ShellCommandResult,
@@ -21,6 +22,7 @@ import type {
   SubagentRunSummary,
   SessionLogResponse,
   SessionTraceExport,
+  TaskWorkspaceRecord,
   ToolDefinition,
   ToolResult,
   TodoItem,
@@ -36,6 +38,11 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [modelProvider, setModelProvider] = useState<ModelProviderInfo | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
+  const [activeTaskWorkspace, setActiveTaskWorkspace] = useState<TaskWorkspaceRecord | null>(null);
+  const [repoPath, setRepoPath] = useState('.');
+  const [branchName, setBranchName] = useState('');
   const [tree, setTree] = useState<WorkspaceFileNode | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
   const [evalTasks, setEvalTasks] = useState<EvalTask[]>([]);
@@ -78,6 +85,7 @@ export default function App() {
       api.health(),
       api.modelProviderStatus(),
       api.workspace(),
+      api.projects(),
       api.workspaceTree(),
       api.tools(),
       api.skills(),
@@ -91,6 +99,7 @@ export default function App() {
           healthResult,
           providerResult,
           workspaceResult,
+          projectResult,
           treeResult,
           toolResult,
           skillResult,
@@ -102,6 +111,10 @@ export default function App() {
           setHealth(healthResult);
           setModelProvider(providerResult.provider);
           setWorkspace(workspaceResult);
+          setProjects(projectResult.projects);
+          setActiveProject(
+            projectResult.projects.find((item) => item.id === projectResult.activeProjectId) ?? null,
+          );
           setTree(treeResult);
           setTools(toolResult.tools);
           setSkills(skillResult.skills);
@@ -109,6 +122,15 @@ export default function App() {
           setDiagnostics(diagnosticsResult);
           setEvalTasks(evalTaskResult.tasks);
           setTodos(todoResult.todos);
+          if (projectResult.activeProjectId && projectResult.activeWorkspaceId) {
+            void api
+              .taskWorkspace(projectResult.activeProjectId, projectResult.activeWorkspaceId)
+              .then((result) => {
+                setActiveProject(result.project);
+                setActiveTaskWorkspace(result.workspace);
+              })
+              .catch(() => undefined);
+          }
           const first = findFirstFile(treeResult);
           if (first) {
             void openFile(first.path);
@@ -164,7 +186,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 19 Engineering Route');
+    const result = await api.createSession('Product P1 Workspace Agent');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
@@ -218,7 +240,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+      session ?? (await api.createSession('Product P1 Workspace Agent')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -333,7 +355,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+        session ?? (await api.createSession('Product P1 Workspace Agent')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -357,10 +379,15 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+        session ?? (await api.createSession('Product P1 Workspace Agent')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
-        { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
+        {
+          sessionId: activeSession.id,
+          workspaceId: activeTaskWorkspace?.id,
+          message: agentPrompt,
+          maxIterations: 6,
+        },
         (event) => {
           setAgentEvents((current) => [...current, event]);
           if (event.type === 'agent.run_created') {
@@ -415,7 +442,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+        session ?? (await api.createSession('Product P1 Workspace Agent')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -476,11 +503,54 @@ export default function App() {
     }
   }
 
+  async function createProject() {
+    setError(null);
+    try {
+      const result = await api.createProject({
+        repoPath,
+        name: repoPath.split('/').filter(Boolean).at(-1),
+      });
+      const list = await api.projects();
+      setProjects(list.projects);
+      setActiveProject(result.project);
+      setActiveTaskWorkspace(null);
+      setBranchName('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function createTaskWorkspace() {
+    if (!activeProject) return;
+    setError(null);
+    try {
+      const result = await api.createTaskWorkspace(activeProject.id, {
+        branchName: branchName.trim() || undefined,
+      });
+      setActiveProject(result.project);
+      setActiveTaskWorkspace(result.workspace);
+      const [workspaceResult, treeResult, diagnosticsResult] = await Promise.all([
+        api.workspace(),
+        api.workspaceTree(),
+        api.diagnostics(),
+      ]);
+      setWorkspace(workspaceResult);
+      setTree(treeResult);
+      setDiagnostics(diagnosticsResult);
+      setSelectedFile(null);
+      setPatchDraft('');
+      const first = findFirstFile(treeResult);
+      if (first) void openFile(first.path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 19</p>
+          <p className="eyebrow">Product P1</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -548,322 +618,173 @@ export default function App() {
           </div>
         </section>
 
-        <aside className="panel agent-panel">
+        <aside className="panel agent-panel product-agent-panel">
           <div className="panel-header">
-            <span>Agent Chat</span>
+            <span>AI Assistant</span>
             <small>{sessionLabel}</small>
           </div>
-          <button className="primary-action" type="button" onClick={() => void createSession()}>
-            创建 Agent Session
-          </button>
-          <div className="chat-placeholder">
-            <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Engineering Route 会把教学 Lab 到可用产品的差距、清理项和交接信息写清楚。</p>
-          </div>
-          <div className="provider-box">
-            <div className="todo-title">Model Provider</div>
-            <div className="state-row">
-              <span>Provider</span>
-              <strong>{modelProvider?.provider ?? 'loading'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Model</span>
-              <strong>{modelProvider?.model ?? 'unknown'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Status</span>
-              <strong>{modelProvider?.status ?? 'unknown'}</strong>
-            </div>
-            <div className="repair-message">
-              {modelProvider?.message ?? '正在读取 Server 端 provider 配置。'}
-            </div>
-          </div>
-          <div className="diagnostics-box">
-            <div className="diagnostics-header">
+          <section className="project-strip" aria-label="Project Workspace">
+            <div className="project-strip-header">
               <div>
-                <div className="todo-title">LSP Diagnostics</div>
-                <small>
-                  {diagnostics?.generatedAt
-                    ? formatDiagnosticTimestamp(diagnostics.generatedAt)
-                    : 'loading'}
-                </small>
+                <span>当前项目</span>
+                <strong>{activeProject?.name ?? '未绑定 Git 项目'}</strong>
               </div>
-              <button type="button" disabled={diagnosticsLoading} onClick={() => void refreshDiagnostics()}>
-                {diagnosticsLoading ? '刷新中' : '刷新'}
+              <small>{activeTaskWorkspace?.branch ?? 'no isolated branch'}</small>
+            </div>
+            <input
+              value={repoPath}
+              onChange={(event) => setRepoPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void createProject();
+              }}
+              placeholder="Git repo path，例如 ."
+            />
+            <div className="project-actions">
+              <button type="button" onClick={() => void createProject()}>
+                绑定项目
+              </button>
+              <button type="button" disabled={!activeProject} onClick={() => void createTaskWorkspace()}>
+                创建隔离工作区
               </button>
             </div>
-            <div className="state-row">
-              <span>Errors</span>
-              <strong>{countDiagnostics(diagnostics?.diagnostics ?? [], 'error')}</strong>
+            <input
+              value={branchName}
+              onChange={(event) => setBranchName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void createTaskWorkspace();
+              }}
+              placeholder="分支名可选，例如 bytesibyl/task-a"
+            />
+            <div className="project-facts">
+              <span>
+                Projects <strong>{projects.length}</strong>
+              </span>
+              <span>
+                Changed <strong>{activeTaskWorkspace?.changedFiles.length ?? 0}</strong>
+              </span>
+              <span>
+                Diagnostics <strong>{diagnostics?.diagnostics.length ?? 0}</strong>
+              </span>
             </div>
-            <div className="state-row">
-              <span>Total</span>
-              <strong>{diagnostics?.diagnostics.length ?? 0}</strong>
-            </div>
-            <div className="diagnostic-list">
-              {(diagnostics?.diagnostics ?? []).length === 0 ? (
-                <div className="diagnostic-empty">当前 workspace 没有 TypeScript diagnostics。</div>
-              ) : (
-                diagnostics?.diagnostics.slice(0, 8).map((diagnostic) => (
-                  <button
-                    type="button"
-                    key={`${diagnostic.path}:${diagnostic.line}:${diagnostic.column}:${diagnostic.message}`}
-                    onClick={() => void openFile(diagnostic.path)}
-                  >
-                    <span className={`diagnostic-severity ${diagnostic.severity}`}>
-                      {diagnostic.severity}
-                    </span>
-                    <strong>
-                      {diagnostic.path}:{diagnostic.line}:{diagnostic.column}
-                    </strong>
-                    <span>{diagnostic.message}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-          <div className="context-box">
-            <div className="todo-title">Context Engine</div>
-            <div className="state-row">
-              <span>Budget</span>
-              <strong>
-                {latestContextSummary
-                  ? `${latestContextSummary.budget.usedChars}/${latestContextSummary.budget.maxChars}`
-                  : 'waiting'}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Relevant files</span>
-              <strong>{latestContextSummary?.relevantFiles.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Compressed</span>
-              <strong>{latestContextSummary?.compressedObservationCount ?? 0}</strong>
-            </div>
-            <div className="repair-message">
-              {latestContextSummary
-                ? latestContextSummary.taskSummary
-                : '运行 Agent Loop 后会显示本轮模型调用前的 context summary。'}
-            </div>
-          </div>
-          <div className="planner-box">
-            <div className="todo-title">Todo Planner</div>
-            <TodoPanel todos={todos} />
-          </div>
-          <div className="skill-box">
-            <div className="todo-title">Skills</div>
-            <div className="state-row">
-              <span>Loaded</span>
-              <strong>{skills.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Current</span>
-              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
-            </div>
-            <div className="repair-message">
-              {currentSkill
-                ? `${currentSkill.reason} · ${currentSkill.skill.description}`
-                : '运行 Agent Loop 后会根据任务选择匹配的 skill。'}
-            </div>
-          </div>
-          <div className="subagent-box">
-            <div className="todo-title">Subagents</div>
-            <div className="state-row">
-              <span>Roles</span>
-              <strong>{subagents.length}</strong>
-            </div>
-            <div className="subagent-list">
-              {subagents.map((item) => (
-                <div className={`subagent-item ${item.role}`} key={item.role}>
-                  <span>{item.role}</span>
-                  <strong>{item.permission}</strong>
-                  <small>{item.responsibilities.join(' / ')}</small>
-                </div>
-              ))}
-            </div>
-            <div className="subagent-summary-list">
-              {(subagentSummary?.summaries ?? []).map((item) => (
-                <div className="subagent-summary" key={item.role}>
-                  <strong>{item.name}</strong>
-                  <span>{item.summary}</span>
-                  <small>
-                    {item.decisions.map((decision) => `${decision.action}:${decision.effect}`).join(' · ')}
-                  </small>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="hook-box">
-            <div className="todo-title">Hooks</div>
-            <div className="state-row">
-              <span>Recorded</span>
-              <strong>{sessionLog?.hooks.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Blocked</span>
-              <strong>{blockedHookCount}</strong>
-            </div>
-            <div className="hook-list">
-              {recentHooks.length === 0 ? (
-                <div className="hook-empty">运行命令、生成 Patch 或执行 Agent 后会显示 Hook trace。</div>
-              ) : (
-                recentHooks.map((hook) => (
-                  <div className={`hook-item ${hook.status}`} key={hook.id}>
-                    <span>{hook.status}</span>
-                    <strong>{hook.phase}</strong>
-                    <small>{hook.subject}</small>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          <TraceViewer trace={sessionTrace} />
-          <div className="eval-box">
-            <div className="eval-header">
-              <div>
-                <div className="todo-title">Evaluation</div>
-                <small>{evalTasks.length} tasks</small>
+            {activeTaskWorkspace ? (
+              <div className="workspace-summary">
+                <span>{activeTaskWorkspace.worktreePath}</span>
+                {(activeTaskWorkspace.changedFiles.length > 0
+                  ? activeTaskWorkspace.changedFiles.slice(0, 4)
+                  : ['当前隔离工作区没有未提交变更。']
+                ).map((item) => (
+                  <small key={item}>{item}</small>
+                ))}
               </div>
-              <button type="button" disabled={evalRunning} onClick={() => void runEvaluation()}>
-                {evalRunning ? '运行中' : '运行'}
+            ) : (
+              <div className="workspace-summary empty">
+                先绑定本地 Git repo，再为任务创建独立 branch/worktree。
+              </div>
+            )}
+          </section>
+
+          <section className="assistant-thread" aria-label="AI conversation">
+            {agentEvents.length === 0 ? (
+              <div className="assistant-empty">
+                输入任务后，Agent 会在隔离 workspace 中读取上下文、运行工具，并通过 Patch
+                Proposal 进入人工审批。
+              </div>
+            ) : (
+              agentEvents.slice(-8).map((event, index) => {
+                if (event.type === 'agent.message') {
+                  return (
+                    <div className="chat-bubble assistant" key={`chat-${index}`}>
+                      {event.content}
+                    </div>
+                  );
+                }
+                if (event.type === 'agent.error') {
+                  return (
+                    <div className="chat-bubble error" key={`chat-${index}`}>
+                      {event.message}
+                    </div>
+                  );
+                }
+                if (event.type === 'agent.done') {
+                  return (
+                    <div className="chat-bubble meta" key={`chat-${index}`}>
+                      Agent Loop completed: {event.finishReason}
+                    </div>
+                  );
+                }
+                if (event.type === 'agent.tool_call') {
+                  return (
+                    <div className="chat-bubble meta" key={`chat-${index}`}>
+                      Tool call: {event.call.name}
+                    </div>
+                  );
+                }
+                if (event.type === 'agent.status') {
+                  return (
+                    <div className="chat-bubble meta" key={`chat-${index}`}>
+                      {event.message}
+                    </div>
+                  );
+                }
+                return null;
+              })
+            )}
+          </section>
+
+          <div className="agent-run-box codex-compose">
+            <label htmlFor="agent-prompt">Ask ByteSibyl</label>
+            <textarea
+              id="agent-prompt"
+              value={agentPrompt}
+              onChange={(event) => setAgentPrompt(event.target.value)}
+              rows={4}
+              placeholder="描述你希望 Agent 在当前隔离工作区完成的任务"
+            />
+            <div className="compose-actions">
+              <button type="button" onClick={() => void createSession()}>
+                新建会话
+              </button>
+              <button type="button" disabled={agentRunning} onClick={() => void runAgent()}>
+                {agentRunning ? '运行中...' : '运行 Agent Loop'}
+              </button>
+              <button type="button" disabled={!agentRunning || !currentRunId} onClick={() => void cancelAgent()}>
+                停止
               </button>
             </div>
-            <div className="state-row">
-              <span>Pass</span>
-              <strong>
-                {evalReport ? `${evalReport.passedCount}/${evalReport.taskCount}` : 'not run'}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Success rate</span>
-              <strong>
-                {evalReport ? `${Math.round(evalReport.metrics.success_rate * 100)}%` : 'n/a'}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Forbidden actions</span>
-              <strong>{evalReport?.metrics.forbidden_action_count ?? 0}</strong>
-            </div>
-            <div className="eval-results">
-              {(evalReport?.results ?? []).slice(0, 5).map((result) => (
-                <div className={result.passed ? 'eval-result passed' : 'eval-result failed'} key={result.id}>
-                  <span>{result.passed ? 'PASS' : 'FAIL'}</span>
-                  <strong>{result.id}</strong>
-                  <small>
-                    commands={result.commandCount} changed={result.changedFilesCount} forbidden=
-                    {result.forbiddenActionCount}
-                  </small>
-                </div>
-              ))}
-            </div>
           </div>
-          <div className="repair-box">
-            <div className="todo-title">Self-Repair Loop</div>
-            <input
-              value={repairCommand}
-              onChange={(event) => setRepairCommand(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void startSelfRepair();
-              }}
-            />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={repairRunning || !repairCommand.trim()}
-              onClick={() => void startSelfRepair()}
-            >
-              {repairRunning ? '检测中...' : '运行自修复循环'}
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={
-                !session ||
-                repairVerifying ||
-                Boolean(patchProposal && patchProposal.status !== 'applied')
-              }
-              onClick={() => void verifySelfRepair()}
-            >
-              {repairVerifying ? '验证中...' : '重新验证'}
-            </button>
-            <div className="state-row">
-              <span>Repair</span>
-              <strong>{repairAttempt?.status ?? 'none'}</strong>
-            </div>
-            <div className="repair-message">
-              {repairAttempt?.message ?? '运行后会生成修复记录；需要修改文件时会进入审批流程。'}
-            </div>
-          </div>
-          <div className="shell-box">
-            <div className="todo-title">Shell Runner</div>
-            <input
-              value={shellCommand}
-              onChange={(event) => setShellCommand(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void runShellCommand();
-              }}
-            />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={shellRunning || !shellCommand.trim()}
-              onClick={() => void runShellCommand()}
-            >
-              {shellRunning ? '执行中...' : '运行安全命令'}
-            </button>
-            {shellResult ? (
-              <div className="shell-result">
-                <div className="state-row">
-                  <span>Status</span>
-                  <strong>{shellResult.status}</strong>
-                </div>
-                <div className="state-row">
-                  <span>Safety</span>
-                  <strong>{shellResult.safety}</strong>
-                </div>
-                <pre>{shellResult.stdout || shellResult.stderr || shellResult.decision.reason}</pre>
+
+          <section className="approval-compact" aria-label="Patch approval">
+            <div className="approval-heading">
+              <div>
+                <span>Patch Proposal</span>
+                <strong>{selectedFile?.path ?? '未选择文件'}</strong>
               </div>
-            ) : null}
-          </div>
-          <div className="patch-box">
-            <div className="todo-title">Patch Draft</div>
-            <small>{selectedFile?.path ?? '选择文件后编辑草稿'}</small>
+              <small>{patchProposal?.status ?? 'none'}</small>
+            </div>
             <textarea
               value={patchDraft}
               disabled={!selectedFile}
               onChange={(event) => setPatchDraft(event.target.value)}
-              rows={6}
+              rows={5}
+              placeholder="选择文件后，这里会显示可编辑草稿。"
             />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={!selectedFile}
-              onClick={() => void createPatchPreview()}
-            >
-              生成 Diff Preview
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={
-                !patchProposal ||
-                ['discarded', 'applied', 'approved', 'waiting_approval'].includes(
-                  patchProposal.status,
-                )
-              }
-              onClick={() => void discardPatch()}
-            >
-              丢弃 Patch Proposal
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!selectedFile}
-              onClick={() => void requestPatchApproval()}
-            >
-              请求审批
-            </button>
-            <div className="approval-actions">
+            <div className="approval-grid">
+              <button type="button" disabled={!selectedFile} onClick={() => void createPatchPreview()}>
+                生成 Diff
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !patchProposal ||
+                  ['discarded', 'applied', 'approved', 'waiting_approval'].includes(patchProposal.status)
+                }
+                onClick={() => void discardPatch()}
+              >
+                丢弃
+              </button>
+              <button type="button" disabled={!selectedFile} onClick={() => void requestPatchApproval()}>
+                请求审批
+              </button>
               <button
                 type="button"
                 disabled={!approval || approval.status !== 'pending'}
@@ -878,191 +799,22 @@ export default function App() {
               >
                 拒绝
               </button>
-            </div>
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={!patchProposal || patchProposal.status !== 'approved'}
-              onClick={() => void applyPatch()}
-            >
-              应用已批准 Patch
-            </button>
-            <div className="state-row">
-              <span>Patch</span>
-              <strong>{patchProposal?.status ?? 'none'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Approval</span>
-              <strong>{approval?.status ?? 'none'}</strong>
+              <button
+                type="button"
+                disabled={!patchProposal || patchProposal.status !== 'approved'}
+                onClick={() => void applyPatch()}
+              >
+                应用
+              </button>
             </div>
             <div className="patch-flow-hint">{patchFlowHint}</div>
-          </div>
-          <div className="agent-run-box">
-            <label htmlFor="agent-prompt">Agent Task</label>
-            <textarea
-              id="agent-prompt"
-              value={agentPrompt}
-              onChange={(event) => setAgentPrompt(event.target.value)}
-              rows={3}
-            />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={agentRunning}
-              onClick={() => void runAgent()}
-            >
-              {agentRunning ? '运行中...' : '运行 Agent Loop'}
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!agentRunning || !currentRunId}
-              onClick={() => void cancelAgent()}
-            >
-              取消当前 Run
-            </button>
-          </div>
-          <div className="session-state-box">
-            <div className="todo-title">Session State</div>
-            <div className="state-row">
-              <span>Session</span>
-              <strong>{session?.status ?? 'none'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Run</span>
-              <strong>{currentRunId ? currentRunId.slice(0, 8) : 'none'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Persisted runs</span>
-              <strong>{sessionLog?.runs.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Patch proposals</span>
-              <strong>{sessionLog?.patches.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Approvals</span>
-              <strong>{sessionLog?.approvals.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Commands</span>
-              <strong>{sessionLog?.commands.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Repairs</span>
-              <strong>{sessionLog?.repairs.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Model calls</span>
-              <strong>{sessionLog?.modelCalls.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Hooks</span>
-              <strong>{sessionLog?.hooks.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Trace events</span>
-              <strong>{sessionTrace?.timeline.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Eval tasks</span>
-              <strong>{evalTasks.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Subagents</span>
-              <strong>{subagents.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Context summaries</span>
-              <strong>
-                {sessionLog?.runs.reduce(
-                  (total, run) =>
-                    total + run.events.filter((event) => event.type === 'agent.context_summary').length,
-                  0,
-                ) ?? 0}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Todos</span>
-              <strong>{todos.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Skill</span>
-              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
-            </div>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!session}
-              onClick={() => void refreshSessionLog()}
-            >
-              刷新 Session Log
-            </button>
-          </div>
-          <div className="tool-box">
-            <div className="todo-title">Tool System</div>
-            <div className="tool-list">
-              {tools.map((tool) => (
-                <div key={tool.name} className="tool-item">
-                  <strong>{tool.name}</strong>
-                  <span>{tool.permission}</span>
-                </div>
-              ))}
-            </div>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!selectedFile}
-              onClick={() => void runReadTool()}
-            >
-              用 read_file 工具读取当前文件
-            </button>
-            {toolResult ? (
-              <pre className={toolResult.ok ? 'tool-result' : 'tool-result error'}>
-                {JSON.stringify(toolResult, null, 2)}
-              </pre>
-            ) : null}
-          </div>
-          <div className="todo-box">
-            <div className="todo-title">Todo Plan</div>
-            <ul>
-              <li className="done">Web IDE 五区布局</li>
-              <li className="done">Workspace 文件树</li>
-              <li className={selectedFile ? 'done' : ''}>读取文件内容</li>
-              <li className={searchMatches.length > 0 ? 'done' : ''}>搜索文本</li>
-              <li className={tools.length > 0 ? 'done' : ''}>注册结构化工具</li>
-              <li className={agentEvents.some((event) => event.type === 'agent.done') ? 'done' : ''}>
-                最小 Agent Loop
-              </li>
-              <li className={sessionLog?.runs.some((run) => run.steps.length > 0) ? 'done' : ''}>
-                持久化 Session Step Log
-              </li>
-              <li className={patchProposal ? 'done' : ''}>生成 Diff Preview</li>
-              <li className={approval ? 'done' : ''}>Human-in-the-loop Approval</li>
-              <li className={patchProposal?.status === 'applied' ? 'done' : ''}>
-                应用已批准 Patch
-              </li>
-              <li className={shellResult ? 'done' : ''}>安全 Shell Runner</li>
-              <li className={repairAttempt ? 'done' : ''}>测试失败后的自修复循环</li>
-              <li className={modelProvider ? 'done' : ''}>Model Provider Integration</li>
-              <li className={diagnostics ? 'done' : ''}>LSP Diagnostics</li>
-              <li className={latestContextSummary ? 'done' : ''}>Context Engine</li>
-              <li className={todos.length > 0 ? 'done' : ''}>Todo Planner</li>
-              <li className={currentSkill ? 'done' : ''}>Skills</li>
-              <li className={(sessionLog?.hooks.length ?? 0) > 0 ? 'done' : ''}>Hooks</li>
-              <li className={(sessionTrace?.timeline.length ?? 0) > 0 ? 'done' : ''}>
-                Trace Replay
-              </li>
-              <li className={evalReport ? 'done' : ''}>Evaluation</li>
-              <li className={subagentSummary ? 'done' : ''}>Subagents</li>
-            </ul>
-          </div>
+          </section>
         </aside>
 
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 19 engineering route</small>
+            <small>Product P1 workspace isolation</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}

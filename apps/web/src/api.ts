@@ -5,6 +5,9 @@ import type {
   AgentShellEvent,
   ApplyPatchResponse,
   DecidePatchApprovalResponse,
+  CreateProjectRequest,
+  CreateProjectResponse,
+  CreateTaskWorkspaceRequest,
   CreatePatchPreviewRequest,
   CreatePatchPreviewResponse,
   CreateAgentSessionResponse,
@@ -20,6 +23,7 @@ import type {
   ShellCommandRequest,
   ShellCommandResponse,
   SkillListResponse,
+  ProjectListResponse,
   SubagentListResponse,
   StartSelfRepairRequest,
   StartSelfRepairResponse,
@@ -28,6 +32,8 @@ import type {
   ToolCallRequest,
   ToolListResponse,
   ToolResult,
+  TaskWorkspaceListResponse,
+  TaskWorkspaceResponse,
   TodoListResponse,
   VerifySelfRepairRequest,
   VerifySelfRepairResponse,
@@ -45,6 +51,25 @@ export const api = {
   modelProviderStatus: () =>
     fetch('/api/model-provider/status').then(json<ModelProviderStatusResponse>),
   workspace: () => fetch('/api/workspace').then(json<WorkspaceInfo>),
+  projects: () => fetch('/api/projects').then(json<ProjectListResponse>),
+  createProject: (request: CreateProjectRequest) =>
+    fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<CreateProjectResponse>),
+  projectWorkspaces: (projectId: string) =>
+    fetch(`/api/projects/${projectId}/workspaces`).then(json<TaskWorkspaceListResponse>),
+  createTaskWorkspace: (projectId: string, request: CreateTaskWorkspaceRequest = {}) =>
+    fetch(`/api/projects/${projectId}/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<TaskWorkspaceResponse>),
+  taskWorkspace: (projectId: string, workspaceId: string) =>
+    fetch(`/api/projects/${projectId}/workspaces/${workspaceId}`).then(
+      json<TaskWorkspaceResponse>,
+    ),
   workspaceTree: () => fetch('/api/workspace/tree').then(json<WorkspaceFileNode>),
   diagnostics: () => fetch('/api/diagnostics').then(json<DiagnosticsResponse>),
   evalTasks: () => fetch('/api/eval/tasks').then(json<EvalTaskListResponse>),

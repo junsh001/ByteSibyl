@@ -31,7 +31,8 @@ export interface HealthResponse {
     | 'phase-16-trace-replay-observability'
     | 'phase-17-evaluation'
     | 'phase-18-subagents'
-    | 'phase-19-engineering-route';
+    | 'phase-19-engineering-route'
+    | 'product-phase-01-project-workspace-git-isolation';
   timestamp: string;
 }
 
@@ -272,6 +273,10 @@ export interface WorkspaceFileNode {
 
 export interface WorkspaceInfo {
   rootName: string;
+  rootPath?: string;
+  projectId?: ProjectId;
+  workspaceId?: TaskWorkspaceId;
+  branch?: string;
 }
 
 export interface ReadWorkspaceFileResponse {
@@ -309,6 +314,62 @@ export interface DiagnosticsResponse {
   diagnostics: WorkspaceDiagnostic[];
   generatedAt: string;
   workspaceRoot: string;
+}
+
+export type ProjectId = string;
+
+export type TaskWorkspaceId = string;
+
+export interface ProjectRecord {
+  id: ProjectId;
+  name: string;
+  repoPath: string;
+  gitRoot: string;
+  defaultBranch: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskWorkspaceRecord {
+  id: TaskWorkspaceId;
+  projectId: ProjectId;
+  branch: string;
+  worktreePath: string;
+  baseRef: string;
+  status: 'creating' | 'active' | 'failed' | 'removed';
+  changedFiles: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectListResponse {
+  projects: ProjectRecord[];
+  activeProjectId?: ProjectId;
+  activeWorkspaceId?: TaskWorkspaceId;
+}
+
+export interface CreateProjectRequest {
+  name?: string;
+  repoPath: string;
+}
+
+export interface CreateProjectResponse {
+  project: ProjectRecord;
+}
+
+export interface CreateTaskWorkspaceRequest {
+  branchName?: string;
+  baseRef?: string;
+}
+
+export interface TaskWorkspaceResponse {
+  project: ProjectRecord;
+  workspace: TaskWorkspaceRecord;
+}
+
+export interface TaskWorkspaceListResponse {
+  workspaces: TaskWorkspaceRecord[];
+  activeWorkspaceId?: TaskWorkspaceId;
 }
 
 export interface ContextRelevantFile {
@@ -752,6 +813,7 @@ export interface ModelCallRecord {
 
 export interface AgentRunRequest {
   sessionId?: SessionId;
+  workspaceId?: TaskWorkspaceId;
   message: string;
   maxIterations?: number;
 }

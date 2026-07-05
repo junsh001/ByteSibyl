@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
+import {
+  Bot,
+  Check,
+  Files,
+  GitBranch,
+  Play,
+  RotateCcw,
+  Search,
+  Square,
+} from 'lucide-react';
 import type {
   AgentRunId,
   AgentRunEvent,
@@ -769,24 +779,48 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Product P3-P5</p>
-          <h1>Web AI Coding Agent Lab</h1>
+    <div className="vscode-shell">
+      <header className="vscode-titlebar">
+        <div className="window-controls" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="titlebar-title">
+          <strong>ByteSibyl</strong>
+          <span>{activeProject?.name ?? workspace?.rootName ?? 'No project'}</span>
         </div>
         <div className="status-group">
           <span className={health?.ok ? 'status-dot ok' : 'status-dot'} />
-          <span>{health ? `${health.service} · ${health.phase}` : '连接 Server 中'}</span>
+          <span>{health ? health.phase : '连接 Server 中'}</span>
         </div>
       </header>
 
-      <main className="ide-grid">
-        <aside className="panel file-tree">
-          <div className="panel-header">
-            <span>{workspace?.rootName ?? 'Workspace'}</span>
+      <main className="vscode-workbench">
+        <nav className="activity-bar" aria-label="Primary">
+          <button className="active" type="button" title="Explorer">
+            <Files size={20} />
+          </button>
+          <button type="button" title="Search">
+            <Search size={20} />
+          </button>
+          <button type="button" title="Source Control">
+            <GitBranch size={20} />
+          </button>
+          <button type="button" title="Assistant">
+            <Bot size={20} />
+          </button>
+        </nav>
+
+        <aside className="explorer-sidebar">
+          <div className="sidebar-heading">
+            <span>EXPLORER</span>
             <small>{tree ? `${countFiles(tree)} files` : 'loading'}</small>
           </div>
+          <section className="workspace-card">
+            <strong>{workspace?.rootName ?? 'Workspace'}</strong>
+            <span>{activeTaskWorkspace?.branch ?? 'no isolated branch'}</span>
+          </section>
           <div className="workspace-tools">
             <input
               value={searchQuery}
@@ -794,10 +828,10 @@ export default function App() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void search();
               }}
-              placeholder="搜索文本"
+              placeholder="Search"
             />
-            <button type="button" onClick={() => void search()}>
-              搜索
+            <button type="button" onClick={() => void search()} title="Search">
+              <Search size={14} />
             </button>
           </div>
           <div className="tree-scroll">
@@ -808,35 +842,30 @@ export default function App() {
             )}
           </div>
           {searchMatches.length > 0 ? (
-            <div className="search-results">
-              {searchMatches.map((match) => (
-                <button
-                  type="button"
-                  key={`${match.path}:${match.line}:${match.column}`}
-                  onClick={() => void openFile(match.path)}
-                >
-                  <strong>{match.path}</strong>
-                  <span>
-                    {match.line}:{match.column} {match.snippet}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <details className="sidebar-results" open>
+              <summary>Search Results</summary>
+              <div className="search-results">
+                {searchMatches.map((match) => (
+                  <button
+                    type="button"
+                    key={`${match.path}:${match.line}:${match.column}`}
+                    onClick={() => void openFile(match.path)}
+                  >
+                    <strong>{match.path}</strong>
+                    <span>
+                      {match.line}:{match.column} {match.snippet}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </details>
           ) : null}
         </aside>
 
-        <section className="panel editor">
-          <div className="panel-header">
-            <span>{selectedFile?.path ?? 'Editor'}</span>
-            <small>
-              {activeOpenFile
-                ? `${activeOpenFile.draftContent.split(/\r?\n/).length} lines${isEditorDirty ? ' · dirty' : ''}${activeOpenFile.readOnly ? ' · read-only' : ''}`
-                : 'Monaco'}
-            </small>
-          </div>
+        <section className="editor-group">
           <div className="editor-tabs">
             {openFiles.length === 0 ? (
-              <span>从左侧文件树打开文件</span>
+              <span>Open a file from Explorer</span>
             ) : (
               openFiles.map((file) => (
                 <button
@@ -847,31 +876,43 @@ export default function App() {
                 >
                   <span>{file.path.split('/').at(-1) ?? file.path}</span>
                   {file.draftContent !== file.originalContent ? <strong>●</strong> : null}
-                  <i onClick={(event) => {
-                    event.stopPropagation();
-                    closeFile(file.path);
-                  }}>
+                  <i
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeFile(file.path);
+                    }}
+                  >
                     ×
                   </i>
                 </button>
               ))
             )}
           </div>
+          <div className="editor-breadcrumb">
+            <span>{selectedFile?.path ?? 'No file selected'}</span>
+            <small>
+              {activeOpenFile
+                ? `${activeOpenFile.draftContent.split(/\r?\n/).length} lines${isEditorDirty ? ' · unsaved draft' : ''}${activeOpenFile.readOnly ? ' · read-only' : ''}`
+                : 'Monaco Editor'}
+            </small>
+          </div>
           <div className="editor-toolbar">
             <button type="button" disabled={!selectedFile || activeOpenFile?.readOnly} onClick={() => void createPatchPreview()}>
-              生成 Diff
+              Review Changes
             </button>
             <button type="button" disabled={!isEditorDirty} onClick={resetEditorDraft}>
-              放弃草稿
+              <RotateCcw size={13} />
+              Discard Draft
             </button>
             <button type="button" disabled={!selectedFile} onClick={() => void requestPatchApproval()}>
-              请求审批
+              Request Approval
             </button>
             <button type="button" disabled={!approval || approval.status !== 'pending'} onClick={() => void approvePatch()}>
-              批准
+              <Check size={13} />
+              Approve
             </button>
             <button type="button" disabled={!patchProposal || patchProposal.status !== 'approved'} onClick={() => void applyPatch()}>
-              应用
+              Apply
             </button>
             <span>{patchFlowHint}</span>
           </div>
@@ -894,31 +935,37 @@ export default function App() {
                 onChange={updateEditorDraft}
               />
             ) : (
-              <div className="editor-empty">选择左侧文件后开始编辑草稿。</div>
+              <div className="editor-empty">Select a file to start editing.</div>
             )}
           </div>
         </section>
 
-        <aside className="panel agent-panel product-agent-panel">
-          <div className="panel-header">
-            <span>AI Assistant</span>
-            <small>{sessionLabel}</small>
-          </div>
-          <section className="chat-workspace-strip" aria-label="Workspace status">
+        <aside className="assistant-sidebar">
+          <header className="assistant-header">
             <div>
+              <strong>ByteSibyl Chat</strong>
+              <span>{currentTask?.status ?? session?.status ?? 'ready'}</span>
+            </div>
+            <button type="button" onClick={() => void createSession()} title="New chat">
+              +
+            </button>
+          </header>
+
+          <section className="assistant-context">
+            <div>
+              <span>Workspace</span>
               <strong>{activeProject?.name ?? '未绑定项目'}</strong>
-              <span>{activeTaskWorkspace?.branch ?? '未创建隔离工作区'}</span>
             </div>
             <small>{activeTaskWorkspace?.changedFiles.length ?? 0} changed</small>
             <details>
-              <summary>项目设置</summary>
+              <summary>Project setup</summary>
               <input
                 value={repoPath}
                 onChange={(event) => setRepoPath(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void createProject();
                 }}
-                placeholder="Git repo path，例如 ."
+                placeholder="Git repo path"
               />
               <input
                 value={branchName}
@@ -926,14 +973,14 @@ export default function App() {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void createTaskWorkspace();
                 }}
-                placeholder="分支名可选"
+                placeholder="Branch name optional"
               />
               <div className="project-actions">
                 <button type="button" onClick={() => void createProject()}>
-                  绑定项目
+                  Bind
                 </button>
                 <button type="button" disabled={!activeProject} onClick={() => void createTaskWorkspace()}>
-                  创建工作区
+                  Isolate
                 </button>
               </div>
             </details>
@@ -942,8 +989,8 @@ export default function App() {
           <section className="assistant-thread" aria-label="AI conversation">
             {visibleChatMessages.length === 0 ? (
               <div className="assistant-empty">
-                像 IDE 插件聊天框一样描述任务。ByteSibyl 会在当前隔离 workspace 中读取上下文，
-                需要修改文件时生成 Patch Proposal。
+                Ask ByteSibyl to inspect, edit, or validate this isolated workspace. Tool calls,
+                commands, approvals, and results will appear here.
               </div>
             ) : (
               visibleChatMessages.map((message) => (
@@ -954,7 +1001,7 @@ export default function App() {
             )}
           </section>
 
-          <div className="agent-run-box codex-compose">
+          <footer className="chat-composer">
             <textarea
               id="agent-prompt"
               value={agentPrompt}
@@ -965,141 +1012,119 @@ export default function App() {
                 }
               }}
               rows={4}
-              placeholder="向 ByteSibyl 发送消息..."
+              placeholder="Ask ByteSibyl..."
             />
             <div className="compose-actions">
-              <button type="button" onClick={() => void createSession()}>
-                新建会话
-              </button>
               <button type="button" disabled={agentRunning || !agentPrompt.trim()} onClick={() => void sendMessage()}>
-                {agentRunning ? '思考中...' : '发送'}
+                <Play size={14} />
+                {agentRunning ? 'Thinking' : 'Send'}
               </button>
               <button type="button" disabled={!agentRunning || !currentRunId} onClick={() => void cancelAgent()}>
-                停止
+                <Square size={13} />
+                Stop
               </button>
             </div>
-          </div>
+          </footer>
         </aside>
 
-        <section className="panel bottom-panel">
-          <div className="panel-header">
-            <span>Terminal / Command Log / Trace Log</span>
-            <small>Product task workflow</small>
-          </div>
-          <div className="log-stream">
-            {error ? <div className="log-line error">Error: {error}</div> : null}
-            {events.length === 0 ? (
-              <div className="log-line muted">等待 session 或 agent 事件...</div>
-            ) : (
-              events.map((event, index) => (
+        <section className="workbench-panel">
+          <details className="panel-section">
+            <summary>
+              <span>Problems & Logs</span>
+              <small>{error ? '1 error' : `${sessionLog?.runs.length ?? 0} runs`}</small>
+            </summary>
+            <div className="log-stream">
+              {error ? <div className="log-line error">Error: {error}</div> : null}
+              {events.map((event, index) => (
                 <div className="log-line" key={`${event.type}-${index}`}>
                   {event.type === 'session.created'
                     ? `session.created ${event.session.id}`
                     : `${event.type} ${event.message}`}
                 </div>
-              ))
-            )}
-            {agentEvents.map((event, index) => (
-              <div className="log-line" key={`agent-${index}`}>
-                {formatAgentEvent(event)}
-              </div>
-            ))}
-            {sessionLog?.runs.flatMap((run) =>
-              run.steps.slice(-6).map((step) => (
-                <div className="log-line muted" key={step.id}>
-                  persisted {run.id.slice(0, 8)} {step.type} {step.title}
+              ))}
+              {agentEvents.map((event, index) => (
+                <div className="log-line" key={`agent-${index}`}>
+                  {formatAgentEvent(event)}
                 </div>
-              )),
+              ))}
+              {sessionLog?.commands.slice(-5).map((command) => (
+                <div className="log-line muted" key={command.id}>
+                  command {command.id.slice(0, 8)} {command.status} {command.command}
+                </div>
+              ))}
+              {sessionLog?.modelCalls.slice(-5).map((call) => (
+                <div className="log-line muted" key={call.id}>
+                  model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
+                  {call.latencyMs}ms
+                </div>
+              ))}
+            </div>
+          </details>
+
+          <details className="panel-section">
+            <summary>
+              <span>Review Changes</span>
+              <small>
+                {patchProposal
+                  ? `${patchProposal.path} +${patchProposal.additions} -${patchProposal.deletions}`
+                  : 'no proposal'}
+              </small>
+            </summary>
+            {patchQueue.length > 0 ? (
+              <div className="patch-queue">
+                {patchQueue.map((proposal) => (
+                  <button
+                    type="button"
+                    key={proposal.id}
+                    className={patchProposal?.id === proposal.id ? 'active' : ''}
+                    onClick={() => {
+                      setPatchProposal(proposal);
+                      void openFile(proposal.path);
+                    }}
+                  >
+                    <span>{proposal.path}</span>
+                    <strong>{proposal.status}</strong>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {patchProposal ? (
+              <div className="diff-editor-shell">
+                <DiffEditor
+                  key={patchProposal.id}
+                  original={
+                    openFiles.find((file) => file.path === patchProposal.path)?.originalContent ??
+                    selectedFile?.content ??
+                    ''
+                  }
+                  modified={patchProposal.updatedContent ?? patchDraft}
+                  language={languageForPath(patchProposal.path)}
+                  theme="vs-light"
+                  options={{
+                    readOnly: true,
+                    renderSideBySide: true,
+                    minimap: { enabled: false },
+                    fontSize: 12,
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="diff-empty">Generate a review from an editor draft to inspect changes.</div>
             )}
-            {sessionLog?.patches.slice(-5).map((patch) => (
-              <div className="log-line muted" key={patch.id}>
-                patch {patch.id.slice(0, 8)} {patch.status} {patch.path} +{patch.additions} -
-                {patch.deletions}
-              </div>
-            ))}
-            {sessionLog?.approvals.slice(-5).map((item) => (
-              <div className="log-line muted" key={item.id}>
-                approval {item.id.slice(0, 8)} {item.status} {item.action} {item.subjectId.slice(0, 8)}
-              </div>
-            ))}
-            {sessionLog?.commands.slice(-5).map((command) => (
-              <div className="log-line muted" key={command.id}>
-                command {command.id.slice(0, 8)} {command.status} {command.command}
-              </div>
-            ))}
-            {sessionLog?.repairs.slice(-5).map((repair) => (
-              <div className="log-line muted" key={repair.id}>
-                repair {repair.id.slice(0, 8)} {repair.status} {repair.message}
-              </div>
-            ))}
-            {sessionLog?.modelCalls.slice(-5).map((call) => (
-              <div className="log-line muted" key={call.id}>
-                model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
-                {call.latencyMs}ms
-              </div>
-            ))}
-            {sessionLog?.hooks.slice(-8).map((hook) => (
-              <div className="log-line muted" key={hook.id}>
-                hook {formatHookRecord(hook)}
-              </div>
-            ))}
-          </div>
+          </details>
         </section>
       </main>
 
-      <details className="diff-preview" aria-label="Diff Preview">
-        <summary className="diff-preview-header">
-          <strong>Diff Preview</strong>
-          <span>
-            {patchProposal
-              ? `${patchProposal.path} +${patchProposal.additions} -${patchProposal.deletions}`
-              : '等待 Patch Proposal'}
-          </span>
-        </summary>
-        {patchQueue.length > 0 ? (
-          <div className="patch-queue">
-            {patchQueue.map((proposal) => (
-              <button
-                type="button"
-                key={proposal.id}
-                className={patchProposal?.id === proposal.id ? 'active' : ''}
-                onClick={() => {
-                  setPatchProposal(proposal);
-                  void openFile(proposal.path);
-                }}
-              >
-                <span>{proposal.path}</span>
-                <strong>{proposal.status}</strong>
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {patchProposal ? (
-          <div className="diff-editor-shell">
-            <DiffEditor
-              key={patchProposal.id}
-              original={
-                openFiles.find((file) => file.path === patchProposal.path)?.originalContent ??
-                selectedFile?.content ??
-                ''
-              }
-              modified={patchProposal.updatedContent ?? patchDraft}
-              language={languageForPath(patchProposal.path)}
-              theme="vs-light"
-              options={{
-                readOnly: true,
-                renderSideBySide: true,
-                minimap: { enabled: false },
-                fontSize: 12,
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-              }}
-            />
-          </div>
-        ) : (
-          <div className="diff-empty">编辑器草稿生成 Diff 后会显示 proposed changes。</div>
-        )}
-      </details>
+      <footer className="vscode-statusbar">
+        <span>
+          <GitBranch size={13} />
+          {activeTaskWorkspace?.branch ?? 'no-workspace'}
+        </span>
+        <span>{selectedFile?.path ?? 'No file'}</span>
+        <span>{modelProvider ? `${modelProvider.provider}/${modelProvider.model}` : 'model loading'}</span>
+      </footer>
     </div>
   );
 }

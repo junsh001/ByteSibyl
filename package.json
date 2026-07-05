@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Web-based AI coding agent + interactive tutorial game for learning modern LLM concepts (Skills/MCP/Agent). Powered by DeepSeek.",
+  "description": "Learning-oriented Web AI Coding Agent Lab with staged agent runtime, tools, patch approval, tracing, evaluation, and engineering roadmap.",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -15,7 +15,6 @@
     "build": "npm --workspace @wac/web run build",
     "start": "NODE_ENV=production tsx apps/server/src/index.ts",
     "serve": "npm run build && npm run start",
-    "db:push": "npm --workspace @wac/db run push",
     "smoke": "tsx scripts/smoke-deepseek.ts",
     "eval": "tsx scripts/eval/run.ts",
     "typecheck": "tsc -b --noEmit"

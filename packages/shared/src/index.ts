@@ -30,7 +30,8 @@ export interface HealthResponse {
     | 'phase-15-hooks'
     | 'phase-16-trace-replay-observability'
     | 'phase-17-evaluation'
-    | 'phase-18-subagents';
+    | 'phase-18-subagents'
+    | 'phase-19-engineering-route';
   timestamp: string;
 }
 

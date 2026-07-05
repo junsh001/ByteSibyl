@@ -164,7 +164,7 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 18 Subagents');
+    const result = await api.createSession('Phase 19 Engineering Route');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
@@ -218,7 +218,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 18 Subagents')).session;
+      session ?? (await api.createSession('Phase 19 Engineering Route')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -333,7 +333,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 18 Subagents')).session;
+        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -357,7 +357,7 @@ export default function App() {
     setCurrentRunId(null);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 18 Subagents')).session;
+        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
@@ -415,7 +415,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 18 Subagents')).session;
+        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -480,7 +480,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 18</p>
+          <p className="eyebrow">Phase 19</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -558,7 +558,7 @@ export default function App() {
           </button>
           <div className="chat-placeholder">
             <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Subagents 会把 planner、coder、reviewer 拆成独立权限和 summary。</p>
+            <p>Engineering Route 会把教学 Lab 到可用产品的差距、清理项和交接信息写清楚。</p>
           </div>
           <div className="provider-box">
             <div className="todo-title">Model Provider</div>
@@ -1062,7 +1062,7 @@ export default function App() {
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 18 subagent summaries</small>
+            <small>Phase 19 engineering route</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}

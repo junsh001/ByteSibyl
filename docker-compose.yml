@@ -1,18 +1,19 @@
 services:
-  codeforge:
+  web-ai-coding-agent-lab:
     build: .
-    image: codeforge:latest
+    image: web-ai-coding-agent-lab:latest
     ports:
       - '8787:8787'
     environment:
       # Provide your DeepSeek key here or via a .env file next to this compose file.
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-mock}
       deepseek_KEY: ${deepseek_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
-      SANDBOX_TIMEOUT_MS: ${SANDBOX_TIMEOUT_MS:-20000}
+      WAC_SESSION_LOG_PATH: /app/data/session-log.json
     volumes:
-      # Persist SQLite db + user project workspaces across restarts.
-      - codeforge-data:/app/data
+      # Persist local session log across restarts.
+      - web-ai-coding-agent-lab-data:/app/data
     restart: unless-stopped
 
 volumes:
-  codeforge-data:
+  web-ai-coding-agent-lab-data:

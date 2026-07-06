@@ -5,11 +5,11 @@ import type { DiagnosticsResponse } from '@wac/shared';
 export async function registerDiagnosticsRoutes(
   app: FastifyInstance,
   diagnostics: DiagnosticsProvider,
-  workspaceRoot: string,
+  getWorkspaceRoot: () => string,
 ): Promise<void> {
   app.get('/api/diagnostics', async (): Promise<DiagnosticsResponse> => ({
     diagnostics: await diagnostics.getDiagnostics(),
     generatedAt: new Date().toISOString(),
-    workspaceRoot,
+    workspaceRoot: getWorkspaceRoot(),
   }));
 }

@@ -12,12 +12,17 @@ export interface TypeScriptDiagnosticsClientOptions {
 }
 
 export class TypeScriptDiagnosticsClient implements DiagnosticsProvider {
-  private readonly workspaceRoot: string;
-  private readonly project: string;
+  private workspaceRoot: string;
+  private project: string;
 
   constructor(options: TypeScriptDiagnosticsClientOptions) {
     this.workspaceRoot = options.workspaceRoot;
     this.project = options.project ?? join(options.workspaceRoot, 'tsconfig.json');
+  }
+
+  setWorkspaceRoot(workspaceRoot: string, project?: string): void {
+    this.workspaceRoot = workspaceRoot;
+    this.project = project ?? join(workspaceRoot, 'tsconfig.json');
   }
 
   async getDiagnostics(): Promise<WorkspaceDiagnostic[]> {

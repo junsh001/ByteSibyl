@@ -33,6 +33,8 @@ export const config = {
   skillsRoot: fromRoot(process.env.WAC_SKILLS_ROOT ?? './.skills'),
   webDist: fromRoot(process.env.WEB_DIST ?? './apps/web/dist'),
   sessionLogPath: fromRoot(process.env.WAC_SESSION_LOG_PATH ?? './data/session-log.json'),
+  projectStorePath: fromRoot(process.env.WAC_PROJECT_STORE_PATH ?? './data/projects.json'),
+  worktreesRoot: fromRoot(process.env.WAC_WORKTREES_ROOT ?? './data/worktrees'),
   modelProvider: modelProvider(),
   modelApiKey:
     process.env.MODEL_API_KEY ??

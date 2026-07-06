@@ -1,6 +1,18 @@
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
-import type { SearchTextMatch, WorkspaceFileNode } from '@wac/shared';
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { promisify } from 'node:util';
+import type {
+  ProjectId,
+  ProjectRecord,
+  SearchTextMatch,
+  TaskWorkspaceId,
+  TaskWorkspaceRecord,
+  WorkspaceFileNode,
+} from '@wac/shared';
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_IGNORED_DIRS = new Set([
   '.git',
@@ -29,12 +41,16 @@ export class WorkspacePathError extends Error {
 }
 
 export class WorkspaceService {
-  readonly root: string;
+  root: string;
   private readonly ignoredDirs: Set<string>;
 
   constructor(root: string, options: WorkspaceOptions = {}) {
     this.root = resolve(root);
     this.ignoredDirs = options.ignoredDirs ?? DEFAULT_IGNORED_DIRS;
+  }
+
+  setRoot(root: string): void {
+    this.root = resolve(root);
   }
 
   async tree(): Promise<WorkspaceFileNode> {
@@ -183,6 +199,231 @@ export class WorkspaceService {
   }
 }
 
+interface ProjectStoreSnapshot {
+  projects: ProjectRecord[];
+  workspaces: TaskWorkspaceRecord[];
+  activeProjectId?: ProjectId;
+  activeWorkspaceId?: TaskWorkspaceId;
+}
+
+export interface ProjectWorkspaceStoreOptions {
+  filePath: string;
+  worktreesRoot: string;
+}
+
+export class ProjectWorkspaceStore {
+  private readonly filePath: string;
+  private readonly worktreesRoot: string;
+  private readonly projects = new Map<ProjectId, ProjectRecord>();
+  private readonly workspaces = new Map<TaskWorkspaceId, TaskWorkspaceRecord>();
+  private activeProjectId?: ProjectId;
+  private activeWorkspaceId?: TaskWorkspaceId;
+
+  constructor(options: ProjectWorkspaceStoreOptions) {
+    this.filePath = resolve(options.filePath);
+    this.worktreesRoot = resolve(options.worktreesRoot);
+  }
+
+  async load(): Promise<void> {
+    try {
+      const raw = await readFile(this.filePath, 'utf8');
+      const snapshot = JSON.parse(raw) as ProjectStoreSnapshot;
+      this.projects.clear();
+      this.workspaces.clear();
+      for (const project of snapshot.projects ?? []) this.projects.set(project.id, project);
+      for (const workspace of snapshot.workspaces ?? []) this.workspaces.set(workspace.id, workspace);
+      this.activeProjectId = snapshot.activeProjectId;
+      this.activeWorkspaceId = snapshot.activeWorkspaceId;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+  }
+
+  listProjects(): ProjectRecord[] {
+    return [...this.projects.values()].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt),
+    );
+  }
+
+  listWorkspaces(projectId: ProjectId): TaskWorkspaceRecord[] {
+    return [...this.workspaces.values()]
+      .filter((workspace) => workspace.projectId === projectId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  getProject(id: ProjectId): ProjectRecord | undefined {
+    return this.projects.get(id);
+  }
+
+  getWorkspace(id: TaskWorkspaceId): TaskWorkspaceRecord | undefined {
+    return this.workspaces.get(id);
+  }
+
+  getActiveProjectId(): ProjectId | undefined {
+    return this.activeProjectId;
+  }
+
+  getActiveWorkspaceId(): TaskWorkspaceId | undefined {
+    return this.activeWorkspaceId;
+  }
+
+  getActiveWorkspace(): TaskWorkspaceRecord | undefined {
+    return this.activeWorkspaceId ? this.workspaces.get(this.activeWorkspaceId) : undefined;
+  }
+
+  async createProject(input: { name?: string; repoPath: string }): Promise<ProjectRecord> {
+    const gitRoot = await resolveGitRoot(input.repoPath);
+    const defaultBranch = await currentBranch(gitRoot);
+    const now = new Date().toISOString();
+    const project: ProjectRecord = {
+      id: randomUUID(),
+      name: input.name?.trim() || basename(gitRoot) || 'Git Project',
+      repoPath: resolve(input.repoPath),
+      gitRoot,
+      defaultBranch,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.projects.set(project.id, project);
+    this.activeProjectId = project.id;
+    await this.save();
+    return project;
+  }
+
+  async createTaskWorkspace(
+    projectId: ProjectId,
+    input: { branchName?: string; baseRef?: string } = {},
+  ): Promise<TaskWorkspaceRecord> {
+    const project = this.requireProject(projectId);
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const branch = sanitizeBranchName(input.branchName ?? `bytesibyl/task-${id.slice(0, 8)}`);
+    const baseRef = input.baseRef?.trim() || project.defaultBranch || 'HEAD';
+    const worktreePath = join(this.worktreesRoot, project.id, id);
+    const workspace: TaskWorkspaceRecord = {
+      id,
+      projectId,
+      branch,
+      worktreePath,
+      baseRef,
+      status: 'creating',
+      changedFiles: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.workspaces.set(id, workspace);
+    await this.save();
+
+    try {
+      await mkdir(dirname(worktreePath), { recursive: true });
+      await git(project.gitRoot, ['worktree', 'add', '-b', branch, worktreePath, baseRef]);
+      const active = {
+        ...workspace,
+        status: 'active' as const,
+        changedFiles: await getChangedFiles(worktreePath),
+        updatedAt: new Date().toISOString(),
+      };
+      this.workspaces.set(id, active);
+      this.activeProjectId = project.id;
+      this.activeWorkspaceId = id;
+      await this.save();
+      return active;
+    } catch (err) {
+      const failed = {
+        ...workspace,
+        status: 'failed' as const,
+        updatedAt: new Date().toISOString(),
+      };
+      this.workspaces.set(id, failed);
+      await this.save();
+      throw err;
+    }
+  }
+
+  async refreshWorkspace(id: TaskWorkspaceId): Promise<TaskWorkspaceRecord> {
+    const workspace = this.requireWorkspace(id);
+    const changedFiles =
+      workspace.status === 'active' ? await getChangedFiles(workspace.worktreePath) : workspace.changedFiles;
+    const updated = { ...workspace, changedFiles, updatedAt: new Date().toISOString() };
+    this.workspaces.set(id, updated);
+    await this.save();
+    return updated;
+  }
+
+  async activateWorkspace(id: TaskWorkspaceId): Promise<TaskWorkspaceRecord> {
+    const workspace = await this.refreshWorkspace(id);
+    this.activeProjectId = workspace.projectId;
+    this.activeWorkspaceId = workspace.id;
+    await this.save();
+    return workspace;
+  }
+
+  private requireProject(id: ProjectId): ProjectRecord {
+    const project = this.projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return project;
+  }
+
+  private requireWorkspace(id: TaskWorkspaceId): TaskWorkspaceRecord {
+    const workspace = this.workspaces.get(id);
+    if (!workspace) throw new Error(`Task workspace not found: ${id}`);
+    return workspace;
+  }
+
+  private async save(): Promise<void> {
+    await mkdir(dirname(this.filePath), { recursive: true });
+    const snapshot: ProjectStoreSnapshot = {
+      projects: this.listProjects(),
+      workspaces: [...this.workspaces.values()],
+      activeProjectId: this.activeProjectId,
+      activeWorkspaceId: this.activeWorkspaceId,
+    };
+    await writeFile(this.filePath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+  }
+}
+
 function joinRelative(base: string, name: string): string {
   return base ? `${base}/${name}` : name;
+}
+
+async function resolveGitRoot(repoPath: string): Promise<string> {
+  const root = resolve(repoPath);
+  const { stdout } = await git(root, ['rev-parse', '--show-toplevel']);
+  return stdout.trim();
+}
+
+async function currentBranch(gitRoot: string): Promise<string> {
+  const { stdout } = await git(gitRoot, ['branch', '--show-current']);
+  return stdout.trim() || 'HEAD';
+}
+
+async function getChangedFiles(worktreePath: string): Promise<string[]> {
+  const { stdout } = await git(worktreePath, ['status', '--porcelain']);
+  return stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+}
+
+async function git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync('git', args, { cwd });
+    return { stdout: String(stdout), stderr: String(stderr) };
+  } catch (err) {
+    const error = err as Error & { stderr?: string };
+    throw new Error(error.stderr || error.message);
+  }
+}
+
+function sanitizeBranchName(name: string): string {
+  return name
+    .trim()
+    .replace(/^\/*/u, '')
+    .replace(/\s+/gu, '-')
+    .replace(/[^A-Za-z0-9._/-]/gu, '-')
+    .replace(/\.\.+/gu, '.')
+    .replace(/\/+/gu, '/')
+    .slice(0, 120) || `bytesibyl/task-${randomUUID().slice(0, 8)}`;
 }

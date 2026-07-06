@@ -34,7 +34,10 @@ import type {
   EvalTask,
   HealthResponse,
   HookRecord,
+  ModelCallRecord,
   ModelProviderInfo,
+  ModelRouteRole,
+  ModelRouterStatus,
   PatchProposal,
   ProductTask,
   ProjectRecord,
@@ -77,6 +80,8 @@ interface ChatMessage {
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [modelProvider, setModelProvider] = useState<ModelProviderInfo | null>(null);
+  const [modelRouter, setModelRouter] = useState<ModelRouterStatus | null>(null);
+  const [modelRoute, setModelRoute] = useState<ModelRouteRole>('default');
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
@@ -160,6 +165,8 @@ export default function App() {
         ]) => {
           setHealth(healthResult);
           setModelProvider(providerResult.provider);
+          setModelRouter(providerResult.router ?? null);
+          setModelRoute(providerResult.router?.defaultRoute ?? 'default');
           setWorkspace(workspaceResult);
           setProjects(projectResult.projects);
           setActiveProject(
@@ -731,6 +738,7 @@ export default function App() {
           taskId: currentTask?.status === 'completed' || currentTask?.status === 'failed' ? undefined : currentTask?.id,
           workspaceId: activeTaskWorkspace?.id,
           message,
+          modelRoute,
           maxIterations: 6,
         },
         (event) => {
@@ -758,6 +766,10 @@ export default function App() {
               ...current,
               { id: `${Date.now()}-done`, role: 'status', content: `完成：${event.finishReason}` },
             ]);
+            void api
+              .modelProviderStatus()
+              .then((result) => setModelRouter(result.router ?? null))
+              .catch(() => undefined);
           }
           if (event.type === 'agent.run_created') {
             setSession(event.session);
@@ -787,7 +799,7 @@ export default function App() {
               {
                 id: `${Date.now()}-model`,
                 role: 'status',
-                content: `模型 ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`,
+                content: formatModelCallMessage(event.call),
               },
             ]);
           }
@@ -992,7 +1004,9 @@ export default function App() {
         <div className="header-meta">
           <span className="model-pill">
             <span className={health?.ok ? 'status-dot ok' : 'status-dot'} />
-            {modelProvider ? `${modelProvider.provider}/${modelProvider.model}` : health?.phase ?? '连接中'}
+            {modelProvider
+              ? `${modelProvider.provider}/${modelProvider.model} · ${modelRoute}`
+              : health?.phase ?? '连接中'}
           </span>
           <span className="xp-pill">
             <Trophy size={13} />
@@ -1171,6 +1185,28 @@ export default function App() {
               <strong>{activeProject?.name ?? '未绑定项目'}</strong>
             </div>
             <small>{activeTaskWorkspace?.changedFiles.length ?? 0} changed</small>
+            <div className="model-route-card">
+              <label htmlFor="model-route">Model route</label>
+              <select
+                id="model-route"
+                value={modelRoute}
+                onChange={(event) => setModelRoute(event.target.value as ModelRouteRole)}
+                disabled={agentRunning}
+              >
+                <option value="cheap">cheap</option>
+                <option value="default">default</option>
+                <option value="reasoning">reasoning</option>
+                <option value="reviewer">reviewer</option>
+              </select>
+              <small>
+                {modelRouter
+                  ? `${modelRouter.usage.usedTokens}/${modelRouter.budget.maxTokens} tokens · $${modelRouter.usage.usedCostUsd.toFixed(6)}/$${modelRouter.budget.maxCostUsd.toFixed(6)}`
+                  : 'router loading'}
+              </small>
+              {modelRouter?.routes.some((route) => route.fallbackToMock) ? (
+                <small>provider failure will fallback to mock</small>
+              ) : null}
+            </div>
             <details>
               <summary>Project setup</summary>
               <input
@@ -1361,8 +1397,7 @@ export default function App() {
                 ))}
                 {sessionLog?.modelCalls.slice(-5).map((call) => (
                   <div className="log-line muted" key={call.id}>
-                    model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
-                    {call.latencyMs}ms
+                    {formatModelCallMessage(call)}
                   </div>
                 ))}
               </div>
@@ -1579,7 +1614,7 @@ export default function App() {
           {activeTaskWorkspace?.branch ?? 'no-workspace'}
         </span>
         <span>{selectedFile?.path ?? 'No file'}</span>
-        <span>{modelProvider ? `${modelProvider.provider}/${modelProvider.model}` : 'model loading'}</span>
+        <span>{modelProvider ? `${modelProvider.provider}/${modelProvider.model} · ${modelRoute}` : 'model loading'}</span>
       </footer>
     </div>
   );
@@ -1814,7 +1849,7 @@ function formatAgentEvent(event: AgentRunEvent): string {
     case 'agent.subagent_summary':
       return `subagent_summary ${event.summary.summaries.map((item) => `${item.role}:${item.permission}`).join(' ')}`;
     case 'agent.model_call':
-      return `model_call ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`;
+      return formatModelCallMessage(event.call);
     case 'agent.message':
       return `assistant ${event.content}`;
     case 'agent.tool_call':
@@ -1826,6 +1861,13 @@ function formatAgentEvent(event: AgentRunEvent): string {
     case 'agent.done':
       return `agent.done ${event.finishReason}`;
   }
+}
+
+function formatModelCallMessage(call: ModelCallRecord): string {
+  const route = call.route ?? 'default';
+  const cost = call.cost ? ` · $${call.cost.totalUsd.toFixed(6)}` : '';
+  const fallback = call.fallback ? ' · fallback=mock' : '';
+  return `模型 ${route} ${call.provider}/${call.model} ${call.status} ${call.latencyMs}ms${cost}${fallback}`;
 }
 
 function formatHookRecord(hook: HookRecord): string {

@@ -1,10 +1,15 @@
 import type {
   JsonSchema,
   ModelMessage,
+  ModelBudget,
+  ModelBudgetState,
+  ModelCost,
   ModelProviderInfo,
   ModelProviderKind,
   ModelRequest,
   ModelResponse,
+  ModelRouteRole,
+  ModelRouterStatus,
   ModelUsage,
   ToolCallRequest,
 } from '@wac/shared';
@@ -12,6 +17,14 @@ import type {
 export interface ModelProvider {
   readonly info: ModelProviderInfo;
   complete(request: ModelRequest): Promise<ModelResponse>;
+  resetUsage?(): void;
+  status?(): ModelRouterStatus;
+}
+
+export interface RoutedModelResponse extends ModelResponse {
+  route: ModelRouteRole;
+  fallback: boolean;
+  cost: ModelCost;
 }
 
 export interface OpenAICompatibleProviderOptions {
@@ -27,6 +40,14 @@ export interface CreateModelProviderOptions {
   baseUrl: string;
   model: string;
   timeoutMs: number;
+}
+
+export interface CreateModelRouterOptions extends CreateModelProviderOptions {
+  defaultRoute?: ModelRouteRole;
+  budget?: Partial<ModelBudget>;
+  fallbackToMock?: boolean;
+  inputTokenUsdPer1K?: number;
+  outputTokenUsdPer1K?: number;
 }
 
 export class ModelProviderError extends Error {
@@ -232,6 +253,121 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   }
 }
 
+export class ModelBudgetExceededError extends Error {
+  readonly code = 'budget_exceeded';
+
+  constructor(readonly state: ModelBudgetState) {
+    super(
+      `模型预算已耗尽：tokens ${state.usedTokens}/${state.budget.maxTokens}, cost $${state.usedCostUsd.toFixed(6)}/$${state.budget.maxCostUsd.toFixed(6)}。`,
+    );
+    this.name = 'ModelBudgetExceededError';
+  }
+}
+
+export class ModelRouter implements ModelProvider {
+  readonly info: ModelProviderInfo;
+  private readonly mock = new MockModelProvider();
+  private readonly routes: Record<ModelRouteRole, ModelProvider>;
+  private readonly defaultRoute: ModelRouteRole;
+  private readonly budget: ModelBudget;
+  private readonly fallbackToMock: boolean;
+  private readonly inputTokenUsdPer1K: number;
+  private readonly outputTokenUsdPer1K: number;
+  private usedTokens = 0;
+  private usedCostUsd = 0;
+
+  constructor(
+    private readonly primary: ModelProvider,
+    options: CreateModelRouterOptions,
+  ) {
+    this.routes = {
+      cheap: primary,
+      default: primary,
+      reasoning: primary,
+      reviewer: primary,
+    };
+    this.defaultRoute = options.defaultRoute ?? 'default';
+    this.budget = {
+      maxTokens: options.budget?.maxTokens ?? 100_000,
+      maxCostUsd: options.budget?.maxCostUsd ?? 1,
+    };
+    this.fallbackToMock = options.fallbackToMock ?? true;
+    this.inputTokenUsdPer1K = options.inputTokenUsdPer1K ?? 0.00014;
+    this.outputTokenUsdPer1K = options.outputTokenUsdPer1K ?? 0.00028;
+    this.info = {
+      ...primary.info,
+      message: `Model Router active. ${primary.info.message}`,
+    };
+  }
+
+  async complete(request: ModelRequest): Promise<RoutedModelResponse> {
+    const route = request.route ?? this.defaultRoute;
+    this.ensureBudgetAvailable();
+    const provider = this.routes[route] ?? this.routes.default;
+    try {
+      const response = await provider.complete({ ...request, route });
+      return this.record(response, route, false);
+    } catch (err) {
+      if (err instanceof ModelBudgetExceededError) throw err;
+      if (!this.fallbackToMock || provider.info.provider === 'mock') throw err;
+      const fallback = await this.mock.complete({ ...request, route });
+      return this.record(fallback, route, true);
+    }
+  }
+
+  status(): ModelRouterStatus {
+    return {
+      routes: (Object.keys(this.routes) as ModelRouteRole[]).map((role) => {
+        const provider = this.routes[role];
+        return {
+          role,
+          provider: provider.info.provider,
+          model: provider.info.model,
+          fallbackToMock: this.fallbackToMock,
+        };
+      }),
+      defaultRoute: this.defaultRoute,
+      budget: this.budget,
+      usage: this.budgetState(),
+    };
+  }
+
+  resetUsage(): void {
+    this.usedTokens = 0;
+    this.usedCostUsd = 0;
+  }
+
+  private record(response: ModelResponse, route: ModelRouteRole, fallback: boolean): RoutedModelResponse {
+    const usage = normalizeUsage(response.usage);
+    const cost = estimateCost(usage, this.inputTokenUsdPer1K, this.outputTokenUsdPer1K);
+    this.usedTokens += usage.totalTokens ?? 0;
+    this.usedCostUsd += cost.totalUsd;
+    return {
+      ...response,
+      usage,
+      route,
+      fallback,
+      cost,
+    };
+  }
+
+  private ensureBudgetAvailable(): void {
+    const state = this.budgetState();
+    if (state.exceeded) throw new ModelBudgetExceededError(state);
+  }
+
+  private budgetState(): ModelBudgetState {
+    return {
+      budget: this.budget,
+      usedTokens: this.usedTokens,
+      usedCostUsd: roundUsd(this.usedCostUsd),
+      remainingTokens: Math.max(0, this.budget.maxTokens - this.usedTokens),
+      remainingCostUsd: roundUsd(Math.max(0, this.budget.maxCostUsd - this.usedCostUsd)),
+      exceeded: this.usedTokens >= this.budget.maxTokens || this.usedCostUsd >= this.budget.maxCostUsd,
+    };
+  }
+}
+
 export function createModelProvider(options: CreateModelProviderOptions): ModelProvider {
   if (options.provider === 'mock') return new MockModelProvider();
   return new OpenAICompatibleModelProvider({
@@ -240,6 +376,39 @@ export function createModelProvider(options: CreateModelProviderOptions): ModelP
     model: options.model,
     timeoutMs: options.timeoutMs,
   });
+}
+
+export function createModelRouter(options: CreateModelRouterOptions): ModelRouter {
+  return new ModelRouter(createModelProvider(options), options);
+}
+
+export function isModelBudgetExceededError(err: unknown): err is ModelBudgetExceededError {
+  return err instanceof ModelBudgetExceededError;
+}
+
+function normalizeUsage(usage: ModelUsage | undefined): Required<ModelUsage> {
+  const promptTokens = usage?.promptTokens ?? 0;
+  const completionTokens = usage?.completionTokens ?? 0;
+  const totalTokens = usage?.totalTokens ?? promptTokens + completionTokens;
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+function estimateCost(
+  usage: ModelUsage,
+  inputUsdPer1K: number,
+  outputUsdPer1K: number,
+): ModelCost {
+  const inputUsd = ((usage.promptTokens ?? 0) / 1000) * inputUsdPer1K;
+  const outputUsd = ((usage.completionTokens ?? 0) / 1000) * outputUsdPer1K;
+  return {
+    inputUsd: roundUsd(inputUsd),
+    outputUsd: roundUsd(outputUsd),
+    totalUsd: roundUsd(inputUsd + outputUsd),
+  };
+}
+
+function roundUsd(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 function firstToolCall(userMessage: string): ToolCallRequest {

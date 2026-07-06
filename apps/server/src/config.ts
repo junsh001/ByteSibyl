@@ -19,7 +19,7 @@ function modelProvider(): 'mock' | 'openai_compatible' {
   const raw = (process.env.MODEL_PROVIDER ?? process.env.WAC_MODEL_PROVIDER ?? 'mock')
     .trim()
     .toLowerCase();
-  if (raw === 'openai' || raw === 'openai-compatible' || raw === 'deepseek') {
+  if (raw === 'openai' || raw === 'openai-compatible' || raw === 'openai_compatible' || raw === 'deepseek') {
     return 'openai_compatible';
   }
   return 'mock';
@@ -46,6 +46,14 @@ export const config = {
     'https://api.deepseek.com',
   modelName: process.env.MODEL_NAME ?? process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
   modelTimeoutMs: Number(process.env.MODEL_TIMEOUT_MS ?? 30_000),
+  modelDefaultRoute:
+    (process.env.MODEL_DEFAULT_ROUTE as 'cheap' | 'default' | 'reasoning' | 'reviewer' | undefined) ??
+    'default',
+  modelBudgetMaxTokens: Number(process.env.MODEL_BUDGET_MAX_TOKENS ?? 100_000),
+  modelBudgetMaxCostUsd: Number(process.env.MODEL_BUDGET_MAX_COST_USD ?? 1),
+  modelFallbackToMock: process.env.MODEL_FALLBACK_TO_MOCK !== 'false',
+  modelInputUsdPer1K: Number(process.env.MODEL_INPUT_USD_PER_1K ?? 0.00014),
+  modelOutputUsdPer1K: Number(process.env.MODEL_OUTPUT_USD_PER_1K ?? 0.00028),
   contextBudgetChars: Number(process.env.CONTEXT_BUDGET_CHARS ?? 6_000),
 };
 

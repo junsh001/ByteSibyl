@@ -35,7 +35,8 @@ export interface HealthResponse {
     | 'product-phase-01-project-workspace-git-isolation'
     | 'product-phase-02-real-web-ide-editing'
     | 'product-phase-03-05-task-workflow'
-    | 'product-phase-06-multifile-patch-git-output';
+    | 'product-phase-06-multifile-patch-git-output'
+    | 'product-phase-07-model-routing-cost-control';
   timestamp: string;
 }
 
@@ -439,6 +440,7 @@ export type ProductTaskStatus =
 export type ProductTaskStopReason =
   | 'done'
   | 'blocked'
+  | 'max_iterations'
   | 'approval_required'
   | 'budget_exceeded'
   | 'sandbox_failed'
@@ -941,6 +943,7 @@ export interface ModelMessage {
 export interface ModelRequest {
   messages: ModelMessage[];
   tools: ToolDefinition[];
+  route?: ModelRouteRole;
 }
 
 export interface ModelResponse {
@@ -948,6 +951,9 @@ export interface ModelResponse {
   toolCalls?: ToolCallRequest[];
   final?: boolean;
   usage?: ModelUsage;
+  route?: ModelRouteRole;
+  cost?: ModelCost;
+  fallback?: boolean;
 }
 
 export type ModelProviderKind = 'mock' | 'openai_compatible';
@@ -966,12 +972,49 @@ export interface ModelProviderInfo {
 
 export interface ModelProviderStatusResponse {
   provider: ModelProviderInfo;
+  router?: ModelRouterStatus;
 }
 
 export interface ModelUsage {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+}
+
+export type ModelRouteRole = 'cheap' | 'default' | 'reasoning' | 'reviewer';
+
+export interface ModelCost {
+  inputUsd?: number;
+  outputUsd?: number;
+  totalUsd: number;
+}
+
+export interface ModelBudget {
+  maxTokens: number;
+  maxCostUsd: number;
+}
+
+export interface ModelBudgetState {
+  budget: ModelBudget;
+  usedTokens: number;
+  usedCostUsd: number;
+  remainingTokens: number;
+  remainingCostUsd: number;
+  exceeded: boolean;
+}
+
+export interface ModelRouteStatus {
+  role: ModelRouteRole;
+  provider: ModelProviderKind;
+  model: string;
+  fallbackToMock: boolean;
+}
+
+export interface ModelRouterStatus {
+  routes: ModelRouteStatus[];
+  defaultRoute: ModelRouteRole;
+  budget: ModelBudget;
+  usage: ModelBudgetState;
 }
 
 export type ModelCallStatus = 'completed' | 'failed' | 'timed_out';
@@ -982,9 +1025,12 @@ export interface ModelCallRecord {
   runId?: AgentRunId;
   provider: ModelProviderKind;
   model: string;
+  route?: ModelRouteRole;
   status: ModelCallStatus;
   latencyMs: number;
   usage?: ModelUsage;
+  cost?: ModelCost;
+  fallback?: boolean;
   requestSummary: string;
   responseSummary?: string;
   error?: string;
@@ -996,6 +1042,7 @@ export interface AgentRunRequest {
   taskId?: ProductTaskId;
   workspaceId?: TaskWorkspaceId;
   message: string;
+  modelRoute?: ModelRouteRole;
   maxIterations?: number;
 }
 
@@ -1062,7 +1109,8 @@ export type AgentRunEvent =
         | 'error'
         | 'cancelled'
         | 'approval_required'
-        | 'sandbox_failed';
+        | 'sandbox_failed'
+        | 'budget_exceeded';
     };
 
 export type AgentShellEvent =

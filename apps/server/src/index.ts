@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { ContextEngine } from '@wac/context-engine';
 import { HookRegistry } from '@wac/hooks';
-import { createModelProvider } from '@wac/model-provider';
+import { createModelRouter } from '@wac/model-provider';
 import { TodoPlanner } from '@wac/planner';
 import { ShellRunner } from '@wac/shell-runner';
 import { SkillRegistry } from '@wac/skills';
@@ -67,12 +67,20 @@ const toolRunner = new ToolRunner(toolRegistry, {
   hooks,
   trace: [],
 });
-const model = createModelProvider({
+const model = createModelRouter({
   provider: config.modelProvider,
   apiKey: config.modelApiKey,
   baseUrl: config.modelBaseUrl,
   model: config.modelName,
   timeoutMs: config.modelTimeoutMs,
+  defaultRoute: config.modelDefaultRoute,
+  budget: {
+    maxTokens: config.modelBudgetMaxTokens,
+    maxCostUsd: config.modelBudgetMaxCostUsd,
+  },
+  fallbackToMock: config.modelFallbackToMock,
+  inputTokenUsdPer1K: config.modelInputUsdPer1K,
+  outputTokenUsdPer1K: config.modelOutputUsdPer1K,
 });
 
 async function activateWorkspace(workspaceId: string): Promise<void> {
@@ -117,12 +125,13 @@ await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalT
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'product-phase-06-multifile-patch-git-output',
+  phase: 'product-phase-07-model-routing-cost-control',
   timestamp: new Date().toISOString(),
 }));
 
 app.get('/api/model-provider/status', async (): Promise<ModelProviderStatusResponse> => ({
   provider: model.info,
+  router: model.status(),
 }));
 
 app.get('/api/subagents', async (): Promise<SubagentListResponse> => ({

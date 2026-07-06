@@ -10,7 +10,7 @@ import { ShellRunner } from '@wac/shell-runner';
 import { SkillRegistry } from '@wac/skills';
 import { SubagentCoordinator } from '@wac/subagents';
 import { SessionStore } from '@wac/telemetry';
-import { WorkspaceService } from '@wac/workspace';
+import { ProjectWorkspaceStore, WorkspaceService } from '@wac/workspace';
 import { ToolRunner, createWorkspaceToolRegistry } from '@wac/tool-system';
 import {
   sseFrame,
@@ -28,6 +28,7 @@ import { registerAgentRoutes } from './routes/agent.js';
 import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
 import { registerEvalRoutes } from './routes/eval.js';
 import { registerPatchRoutes } from './routes/patches.js';
+import { registerProjectRoutes } from './routes/projects.js';
 import { registerSelfRepairRoutes } from './routes/self-repair.js';
 import { registerShellRoutes } from './routes/shell.js';
 import { registerSkillRoutes } from './routes/skills.js';
@@ -37,6 +38,11 @@ import { registerWorkspaceRoutes } from './routes/workspace.js';
 
 const sessionStore = new SessionStore(config.sessionLogPath);
 await sessionStore.load();
+const projectStore = new ProjectWorkspaceStore({
+  filePath: config.projectStorePath,
+  worktreesRoot: config.worktreesRoot,
+});
+await projectStore.load();
 const skillRegistry = await SkillRegistry.loadFromDirectory(config.skillsRoot);
 const subagents = new SubagentCoordinator();
 const hooks = new HookRegistry();
@@ -67,13 +73,28 @@ const model = createModelProvider({
   timeoutMs: config.modelTimeoutMs,
 });
 
+async function activateWorkspace(workspaceId: string): Promise<void> {
+  const active = await projectStore.activateWorkspace(workspaceId);
+  workspace.setRoot(active.worktreePath);
+  shellRunner.setWorkspaceRoot(active.worktreePath);
+  diagnostics.setWorkspaceRoot(active.worktreePath);
+}
+
+const activeWorkspace = projectStore.getActiveWorkspace();
+if (activeWorkspace?.status === 'active') {
+  workspace.setRoot(activeWorkspace.worktreePath);
+  shellRunner.setWorkspaceRoot(activeWorkspace.worktreePath);
+  diagnostics.setWorkspaceRoot(activeWorkspace.worktreePath);
+}
+
 const app = Fastify({ logger: { level: 'info' }, bodyLimit: 10 * 1024 * 1024 });
 await app.register(cors, { origin: true });
 await registerWorkspaceRoutes(app, workspace);
+await registerProjectRoutes(app, { projectStore, activateWorkspace });
 await registerToolRoutes(app, toolRegistry, toolRunner);
 await registerTodoRoutes(app, planner);
 await registerSkillRoutes(app, skillRegistry);
-await registerDiagnosticsRoutes(app, diagnostics, workspace.root);
+await registerDiagnosticsRoutes(app, diagnostics, () => workspace.root);
 await registerAgentRoutes(app, {
   model,
   toolRegistry,
@@ -84,6 +105,7 @@ await registerAgentRoutes(app, {
   subagents,
   sessionStore,
   hooks,
+  activateWorkspace,
 });
 await registerPatchRoutes(app, { workspace, hooks, sessionStore });
 await registerShellRoutes(app, { shellRunner, hooks, sessionStore });
@@ -93,7 +115,7 @@ await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalT
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'phase-19-engineering-route',
+  phase: 'product-phase-01-project-workspace-git-isolation',
   timestamp: new Date().toISOString(),
 }));
 

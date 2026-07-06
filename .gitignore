@@ -6,7 +6,9 @@ build/
 .env.local
 data/*.db
 data/*.db-*
+data/projects.json
 data/session-log.json
+data/worktrees/
 workspaces/
 .DS_Store
 *.tsbuildinfo

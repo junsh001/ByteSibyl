@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import type {
   AgentRunId,
   AgentRunEvent,
@@ -12,6 +13,7 @@ import type {
   HookRecord,
   ModelProviderInfo,
   PatchProposal,
+  ProjectRecord,
   SearchTextMatch,
   SelfRepairAttempt,
   ShellCommandResult,
@@ -21,6 +23,7 @@ import type {
   SubagentRunSummary,
   SessionLogResponse,
   SessionTraceExport,
+  TaskWorkspaceRecord,
   ToolDefinition,
   ToolResult,
   TodoItem,
@@ -32,10 +35,30 @@ import { countDiagnostics, formatDiagnosticTimestamp } from './features/diagnost
 import { TodoPanel } from './features/todo-panel';
 import { TraceViewer } from './features/trace-viewer';
 
+const MAX_EDITABLE_BYTES = 256 * 1024;
+
+interface OpenFileTab {
+  path: string;
+  originalContent: string;
+  draftContent: string;
+  readOnly: boolean;
+}
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'status' | 'error';
+  content: string;
+}
+
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [modelProvider, setModelProvider] = useState<ModelProviderInfo | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
+  const [activeTaskWorkspace, setActiveTaskWorkspace] = useState<TaskWorkspaceRecord | null>(null);
+  const [repoPath, setRepoPath] = useState('.');
+  const [branchName, setBranchName] = useState('');
   const [tree, setTree] = useState<WorkspaceFileNode | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
   const [evalTasks, setEvalTasks] = useState<EvalTask[]>([]);
@@ -43,6 +66,7 @@ export default function App() {
   const [evalRunning, setEvalRunning] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string } | null>(null);
+  const [openFiles, setOpenFiles] = useState<OpenFileTab[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
@@ -61,8 +85,10 @@ export default function App() {
   const [repairVerifying, setRepairVerifying] = useState(false);
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
+  const [patchQueue, setPatchQueue] = useState<PatchProposal[]>([]);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
-  const [agentPrompt, setAgentPrompt] = useState('获取 TypeScript diagnostics 并说明当前类型错误');
+  const [agentPrompt, setAgentPrompt] = useState('修复当前工作区中的 TypeScript 错误');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
@@ -78,6 +104,7 @@ export default function App() {
       api.health(),
       api.modelProviderStatus(),
       api.workspace(),
+      api.projects(),
       api.workspaceTree(),
       api.tools(),
       api.skills(),
@@ -91,6 +118,7 @@ export default function App() {
           healthResult,
           providerResult,
           workspaceResult,
+          projectResult,
           treeResult,
           toolResult,
           skillResult,
@@ -102,6 +130,10 @@ export default function App() {
           setHealth(healthResult);
           setModelProvider(providerResult.provider);
           setWorkspace(workspaceResult);
+          setProjects(projectResult.projects);
+          setActiveProject(
+            projectResult.projects.find((item) => item.id === projectResult.activeProjectId) ?? null,
+          );
           setTree(treeResult);
           setTools(toolResult.tools);
           setSkills(skillResult.skills);
@@ -109,6 +141,15 @@ export default function App() {
           setDiagnostics(diagnosticsResult);
           setEvalTasks(evalTaskResult.tasks);
           setTodos(todoResult.todos);
+          if (projectResult.activeProjectId && projectResult.activeWorkspaceId) {
+            void api
+              .taskWorkspace(projectResult.activeProjectId, projectResult.activeWorkspaceId)
+              .then((result) => {
+                setActiveProject(result.project);
+                setActiveTaskWorkspace(result.workspace);
+              })
+              .catch(() => undefined);
+          }
           const first = findFirstFile(treeResult);
           if (first) {
             void openFile(first.path);
@@ -162,9 +203,20 @@ export default function App() {
     return 'Patch Proposal 已生成，可以请求审批。';
   }, [patchProposal, selectedFile]);
 
+  const activeOpenFile = useMemo(
+    () => (selectedFile ? openFiles.find((file) => file.path === selectedFile.path) ?? null : null),
+    [openFiles, selectedFile],
+  );
+
+  const isEditorDirty = activeOpenFile
+    ? activeOpenFile.draftContent !== activeOpenFile.originalContent
+    : false;
+
+  const visibleChatMessages = useMemo(() => chatMessages.slice(-24), [chatMessages]);
+
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Phase 19 Engineering Route');
+    const result = await api.createSession('Product P2 Web IDE Chat');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
@@ -196,11 +248,71 @@ export default function App() {
 
   async function openFile(path: string) {
     setError(null);
+    const existing = openFiles.find((file) => file.path === path);
+    if (existing) {
+      setSelectedFile({ path: existing.path, content: existing.originalContent });
+      setPatchDraft(existing.draftContent);
+      setPatchProposal(patchQueue.find((proposal) => proposal.path === existing.path) ?? null);
+      setApproval(null);
+      return;
+    }
     const result = await api.readWorkspaceFile(path);
+    const readOnly = byteLength(result.content) > MAX_EDITABLE_BYTES;
     setSelectedFile(result);
+    setOpenFiles((current) => {
+      const existing = current.find((file) => file.path === result.path);
+      if (existing) return current;
+      return [
+        ...current,
+        {
+          path: result.path,
+          originalContent: result.content,
+          draftContent: result.content,
+          readOnly,
+        },
+      ].slice(-8);
+    });
     setPatchDraft(result.content);
     setPatchProposal(null);
     setApproval(null);
+  }
+
+  function closeFile(path: string) {
+    setOpenFiles((current) => current.filter((file) => file.path !== path));
+    if (selectedFile?.path !== path) return;
+    const next = openFiles.find((file) => file.path !== path);
+    if (next) {
+      setSelectedFile({ path: next.path, content: next.originalContent });
+      setPatchDraft(next.draftContent);
+      setPatchProposal(patchQueue.find((proposal) => proposal.path === next.path) ?? null);
+    } else {
+      setSelectedFile(null);
+      setPatchDraft('');
+      setPatchProposal(null);
+    }
+    setApproval(null);
+  }
+
+  function updateEditorDraft(value: string | undefined) {
+    if (!selectedFile || value === undefined) return;
+    setPatchDraft(value);
+    setOpenFiles((current) =>
+      current.map((file) =>
+        file.path === selectedFile.path ? { ...file, draftContent: value } : file,
+      ),
+    );
+  }
+
+  function resetEditorDraft() {
+    if (!activeOpenFile) return;
+    setPatchDraft(activeOpenFile.originalContent);
+    setOpenFiles((current) =>
+      current.map((file) =>
+        file.path === activeOpenFile.path
+          ? { ...file, draftContent: activeOpenFile.originalContent }
+          : file,
+      ),
+    );
   }
 
   async function createPatchPreview() {
@@ -209,6 +321,7 @@ export default function App() {
     try {
       const result = await createPatchPreviewForSelectedFile();
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -218,7 +331,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+      session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -235,6 +348,7 @@ export default function App() {
     try {
       const result = await api.discardPatch(patchProposal.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(null);
       await refreshSessionLog();
     } catch (err) {
@@ -253,6 +367,7 @@ export default function App() {
       setPatchProposal(proposal);
       const result = await api.requestPatchApproval(proposal.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval ?? null);
       if (result.decision.effect === 'deny') {
         const message = result.decision.violations.map((violation) => violation.message).join(' ');
@@ -270,6 +385,7 @@ export default function App() {
     try {
       const result = await api.approvePatch(approval.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
       await refreshSessionLog();
     } catch (err) {
@@ -283,6 +399,7 @@ export default function App() {
     try {
       const result = await api.rejectPatch(approval.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
       await refreshSessionLog();
     } catch (err) {
@@ -296,10 +413,18 @@ export default function App() {
     try {
       const result = await api.applyPatch(patchProposal.id);
       setPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setPatchDraft(result.content);
       if (selectedFile?.path === result.proposal.path) {
         setSelectedFile({ path: result.proposal.path, content: result.content });
       }
+      setOpenFiles((current) =>
+        current.map((file) =>
+          file.path === result.proposal.path
+            ? { ...file, originalContent: result.content, draftContent: result.content }
+            : file,
+        ),
+      );
       await refreshSessionLog();
       setTree(await api.workspaceTree());
       await refreshDiagnostics();
@@ -333,7 +458,7 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
@@ -349,20 +474,56 @@ export default function App() {
     }
   }
 
-  async function runAgent() {
+  async function sendMessage() {
+    const message = agentPrompt.trim();
+    if (!message) return;
     setError(null);
     setAgentEvents([]);
     setAgentRunning(true);
     setSubagentSummary(null);
     setCurrentRunId(null);
+    setChatMessages((current) => [
+      ...current,
+      { id: `${Date.now()}-user`, role: 'user', content: message },
+    ]);
+    setAgentPrompt('');
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
-        { sessionId: activeSession.id, message: agentPrompt, maxIterations: 6 },
+        {
+          sessionId: activeSession.id,
+          workspaceId: activeTaskWorkspace?.id,
+          message,
+          maxIterations: 6,
+        },
         (event) => {
           setAgentEvents((current) => [...current, event]);
+          if (event.type === 'agent.status') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-status`, role: 'status', content: event.message },
+            ]);
+          }
+          if (event.type === 'agent.message') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-assistant`, role: 'assistant', content: event.content },
+            ]);
+          }
+          if (event.type === 'agent.error') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-error`, role: 'error', content: event.message },
+            ]);
+          }
+          if (event.type === 'agent.done') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-done`, role: 'status', content: `完成：${event.finishReason}` },
+            ]);
+          }
           if (event.type === 'agent.run_created') {
             setSession(event.session);
             setCurrentRunId(event.run.id);
@@ -386,6 +547,10 @@ export default function App() {
         (message) => {
           setAgentRunning(false);
           setError(message);
+          setChatMessages((current) => [
+            ...current,
+            { id: `${Date.now()}-stream-error`, role: 'error', content: message },
+          ]);
           setCurrentRunId(null);
           stopAgentStreamRef.current = null;
         },
@@ -415,7 +580,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Phase 19 Engineering Route')).session;
+        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -431,6 +596,12 @@ export default function App() {
           const file = await api.readWorkspaceFile(result.proposal.path);
           setSelectedFile(file);
           setPatchDraft(result.proposal.updatedContent);
+          setOpenFiles((current) => upsertOpenFile(current, {
+            path: file.path,
+            originalContent: file.content,
+            draftContent: result.proposal?.updatedContent ?? file.content,
+            readOnly: byteLength(file.content) > MAX_EDITABLE_BYTES,
+          }));
         }
       }
       await refreshSessionLog(result.session);
@@ -476,11 +647,58 @@ export default function App() {
     }
   }
 
+  async function createProject() {
+    setError(null);
+    try {
+      const result = await api.createProject({
+        repoPath,
+        name: repoPath.split('/').filter(Boolean).at(-1),
+      });
+      const list = await api.projects();
+      setProjects(list.projects);
+      setActiveProject(result.project);
+      setActiveTaskWorkspace(null);
+      setBranchName('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function createTaskWorkspace() {
+    if (!activeProject) return;
+    setError(null);
+    try {
+      const result = await api.createTaskWorkspace(activeProject.id, {
+        branchName: branchName.trim() || undefined,
+      });
+      setActiveProject(result.project);
+      setActiveTaskWorkspace(result.workspace);
+      const [workspaceResult, treeResult, diagnosticsResult] = await Promise.all([
+        api.workspace(),
+        api.workspaceTree(),
+        api.diagnostics(),
+      ]);
+      setWorkspace(workspaceResult);
+      setTree(treeResult);
+      setDiagnostics(diagnosticsResult);
+      setSelectedFile(null);
+      setPatchDraft('');
+      setOpenFiles([]);
+      setPatchProposal(null);
+      setPatchQueue([]);
+      setApproval(null);
+      const first = findFirstFile(treeResult);
+      if (first) void openFile(first.path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Phase 19</p>
+          <p className="eyebrow">Product P2</p>
           <h1>Web AI Coding Agent Lab</h1>
         </div>
         <div className="status-group">
@@ -536,533 +754,163 @@ export default function App() {
         <section className="panel editor">
           <div className="panel-header">
             <span>{selectedFile?.path ?? 'Editor'}</span>
-            <small>{selectedFile ? `${selectedFile.content.split(/\r?\n/).length} lines` : ''}</small>
+            <small>
+              {activeOpenFile
+                ? `${activeOpenFile.draftContent.split(/\r?\n/).length} lines${isEditorDirty ? ' · dirty' : ''}${activeOpenFile.readOnly ? ' · read-only' : ''}`
+                : 'Monaco'}
+            </small>
           </div>
-          <div className="editor-placeholder">
-            <div className="line-gutter">
-              {(selectedFile?.content.split(/\r?\n/) ?? ['']).map((_, index) => (
-                <div key={index}>{index + 1}</div>
-              ))}
-            </div>
-            <pre>{selectedFile?.content ?? '选择左侧文件'}</pre>
+          <div className="editor-tabs">
+            {openFiles.length === 0 ? (
+              <span>从左侧文件树打开文件</span>
+            ) : (
+              openFiles.map((file) => (
+                <button
+                  type="button"
+                  key={file.path}
+                  className={selectedFile?.path === file.path ? 'active' : ''}
+                  onClick={() => void openFile(file.path)}
+                >
+                  <span>{file.path.split('/').at(-1) ?? file.path}</span>
+                  {file.draftContent !== file.originalContent ? <strong>●</strong> : null}
+                  <i onClick={(event) => {
+                    event.stopPropagation();
+                    closeFile(file.path);
+                  }}>
+                    ×
+                  </i>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="editor-toolbar">
+            <button type="button" disabled={!selectedFile || activeOpenFile?.readOnly} onClick={() => void createPatchPreview()}>
+              生成 Diff
+            </button>
+            <button type="button" disabled={!isEditorDirty} onClick={resetEditorDraft}>
+              放弃草稿
+            </button>
+            <button type="button" disabled={!selectedFile} onClick={() => void requestPatchApproval()}>
+              请求审批
+            </button>
+            <button type="button" disabled={!approval || approval.status !== 'pending'} onClick={() => void approvePatch()}>
+              批准
+            </button>
+            <button type="button" disabled={!patchProposal || patchProposal.status !== 'approved'} onClick={() => void applyPatch()}>
+              应用
+            </button>
+            <span>{patchFlowHint}</span>
+          </div>
+          <div className="monaco-shell">
+            {activeOpenFile ? (
+              <Editor
+                key={activeOpenFile.path}
+                value={activeOpenFile.draftContent}
+                defaultLanguage={languageForPath(activeOpenFile.path)}
+                theme="vs-light"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  readOnly: activeOpenFile.readOnly,
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                }}
+                onChange={updateEditorDraft}
+              />
+            ) : (
+              <div className="editor-empty">选择左侧文件后开始编辑草稿。</div>
+            )}
           </div>
         </section>
 
-        <aside className="panel agent-panel">
+        <aside className="panel agent-panel product-agent-panel">
           <div className="panel-header">
-            <span>Agent Chat</span>
+            <span>AI Assistant</span>
             <small>{sessionLabel}</small>
           </div>
-          <button className="primary-action" type="button" onClick={() => void createSession()}>
-            创建 Agent Session
-          </button>
-          <div className="chat-placeholder">
-            <p>Model Provider 可以使用 mock 或真实 OpenAI-compatible API。</p>
-            <p>Engineering Route 会把教学 Lab 到可用产品的差距、清理项和交接信息写清楚。</p>
-          </div>
-          <div className="provider-box">
-            <div className="todo-title">Model Provider</div>
-            <div className="state-row">
-              <span>Provider</span>
-              <strong>{modelProvider?.provider ?? 'loading'}</strong>
+          <section className="chat-workspace-strip" aria-label="Workspace status">
+            <div>
+              <strong>{activeProject?.name ?? '未绑定项目'}</strong>
+              <span>{activeTaskWorkspace?.branch ?? '未创建隔离工作区'}</span>
             </div>
-            <div className="state-row">
-              <span>Model</span>
-              <strong>{modelProvider?.model ?? 'unknown'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Status</span>
-              <strong>{modelProvider?.status ?? 'unknown'}</strong>
-            </div>
-            <div className="repair-message">
-              {modelProvider?.message ?? '正在读取 Server 端 provider 配置。'}
-            </div>
-          </div>
-          <div className="diagnostics-box">
-            <div className="diagnostics-header">
-              <div>
-                <div className="todo-title">LSP Diagnostics</div>
-                <small>
-                  {diagnostics?.generatedAt
-                    ? formatDiagnosticTimestamp(diagnostics.generatedAt)
-                    : 'loading'}
-                </small>
+            <small>{activeTaskWorkspace?.changedFiles.length ?? 0} changed</small>
+            <details>
+              <summary>项目设置</summary>
+              <input
+                value={repoPath}
+                onChange={(event) => setRepoPath(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void createProject();
+                }}
+                placeholder="Git repo path，例如 ."
+              />
+              <input
+                value={branchName}
+                onChange={(event) => setBranchName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void createTaskWorkspace();
+                }}
+                placeholder="分支名可选"
+              />
+              <div className="project-actions">
+                <button type="button" onClick={() => void createProject()}>
+                  绑定项目
+                </button>
+                <button type="button" disabled={!activeProject} onClick={() => void createTaskWorkspace()}>
+                  创建工作区
+                </button>
               </div>
-              <button type="button" disabled={diagnosticsLoading} onClick={() => void refreshDiagnostics()}>
-                {diagnosticsLoading ? '刷新中' : '刷新'}
-              </button>
-            </div>
-            <div className="state-row">
-              <span>Errors</span>
-              <strong>{countDiagnostics(diagnostics?.diagnostics ?? [], 'error')}</strong>
-            </div>
-            <div className="state-row">
-              <span>Total</span>
-              <strong>{diagnostics?.diagnostics.length ?? 0}</strong>
-            </div>
-            <div className="diagnostic-list">
-              {(diagnostics?.diagnostics ?? []).length === 0 ? (
-                <div className="diagnostic-empty">当前 workspace 没有 TypeScript diagnostics。</div>
-              ) : (
-                diagnostics?.diagnostics.slice(0, 8).map((diagnostic) => (
-                  <button
-                    type="button"
-                    key={`${diagnostic.path}:${diagnostic.line}:${diagnostic.column}:${diagnostic.message}`}
-                    onClick={() => void openFile(diagnostic.path)}
-                  >
-                    <span className={`diagnostic-severity ${diagnostic.severity}`}>
-                      {diagnostic.severity}
-                    </span>
-                    <strong>
-                      {diagnostic.path}:{diagnostic.line}:{diagnostic.column}
-                    </strong>
-                    <span>{diagnostic.message}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-          <div className="context-box">
-            <div className="todo-title">Context Engine</div>
-            <div className="state-row">
-              <span>Budget</span>
-              <strong>
-                {latestContextSummary
-                  ? `${latestContextSummary.budget.usedChars}/${latestContextSummary.budget.maxChars}`
-                  : 'waiting'}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Relevant files</span>
-              <strong>{latestContextSummary?.relevantFiles.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Compressed</span>
-              <strong>{latestContextSummary?.compressedObservationCount ?? 0}</strong>
-            </div>
-            <div className="repair-message">
-              {latestContextSummary
-                ? latestContextSummary.taskSummary
-                : '运行 Agent Loop 后会显示本轮模型调用前的 context summary。'}
-            </div>
-          </div>
-          <div className="planner-box">
-            <div className="todo-title">Todo Planner</div>
-            <TodoPanel todos={todos} />
-          </div>
-          <div className="skill-box">
-            <div className="todo-title">Skills</div>
-            <div className="state-row">
-              <span>Loaded</span>
-              <strong>{skills.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Current</span>
-              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
-            </div>
-            <div className="repair-message">
-              {currentSkill
-                ? `${currentSkill.reason} · ${currentSkill.skill.description}`
-                : '运行 Agent Loop 后会根据任务选择匹配的 skill。'}
-            </div>
-          </div>
-          <div className="subagent-box">
-            <div className="todo-title">Subagents</div>
-            <div className="state-row">
-              <span>Roles</span>
-              <strong>{subagents.length}</strong>
-            </div>
-            <div className="subagent-list">
-              {subagents.map((item) => (
-                <div className={`subagent-item ${item.role}`} key={item.role}>
-                  <span>{item.role}</span>
-                  <strong>{item.permission}</strong>
-                  <small>{item.responsibilities.join(' / ')}</small>
-                </div>
-              ))}
-            </div>
-            <div className="subagent-summary-list">
-              {(subagentSummary?.summaries ?? []).map((item) => (
-                <div className="subagent-summary" key={item.role}>
-                  <strong>{item.name}</strong>
-                  <span>{item.summary}</span>
-                  <small>
-                    {item.decisions.map((decision) => `${decision.action}:${decision.effect}`).join(' · ')}
-                  </small>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="hook-box">
-            <div className="todo-title">Hooks</div>
-            <div className="state-row">
-              <span>Recorded</span>
-              <strong>{sessionLog?.hooks.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Blocked</span>
-              <strong>{blockedHookCount}</strong>
-            </div>
-            <div className="hook-list">
-              {recentHooks.length === 0 ? (
-                <div className="hook-empty">运行命令、生成 Patch 或执行 Agent 后会显示 Hook trace。</div>
-              ) : (
-                recentHooks.map((hook) => (
-                  <div className={`hook-item ${hook.status}`} key={hook.id}>
-                    <span>{hook.status}</span>
-                    <strong>{hook.phase}</strong>
-                    <small>{hook.subject}</small>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          <TraceViewer trace={sessionTrace} />
-          <div className="eval-box">
-            <div className="eval-header">
-              <div>
-                <div className="todo-title">Evaluation</div>
-                <small>{evalTasks.length} tasks</small>
+            </details>
+          </section>
+
+          <section className="assistant-thread" aria-label="AI conversation">
+            {visibleChatMessages.length === 0 ? (
+              <div className="assistant-empty">
+                像 IDE 插件聊天框一样描述任务。ByteSibyl 会在当前隔离 workspace 中读取上下文，
+                需要修改文件时生成 Patch Proposal。
               </div>
-              <button type="button" disabled={evalRunning} onClick={() => void runEvaluation()}>
-                {evalRunning ? '运行中' : '运行'}
-              </button>
-            </div>
-            <div className="state-row">
-              <span>Pass</span>
-              <strong>
-                {evalReport ? `${evalReport.passedCount}/${evalReport.taskCount}` : 'not run'}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Success rate</span>
-              <strong>
-                {evalReport ? `${Math.round(evalReport.metrics.success_rate * 100)}%` : 'n/a'}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Forbidden actions</span>
-              <strong>{evalReport?.metrics.forbidden_action_count ?? 0}</strong>
-            </div>
-            <div className="eval-results">
-              {(evalReport?.results ?? []).slice(0, 5).map((result) => (
-                <div className={result.passed ? 'eval-result passed' : 'eval-result failed'} key={result.id}>
-                  <span>{result.passed ? 'PASS' : 'FAIL'}</span>
-                  <strong>{result.id}</strong>
-                  <small>
-                    commands={result.commandCount} changed={result.changedFilesCount} forbidden=
-                    {result.forbiddenActionCount}
-                  </small>
+            ) : (
+              visibleChatMessages.map((message) => (
+                <div className={`chat-bubble ${message.role}`} key={message.id}>
+                  {message.content}
                 </div>
-              ))}
-            </div>
-          </div>
-          <div className="repair-box">
-            <div className="todo-title">Self-Repair Loop</div>
-            <input
-              value={repairCommand}
-              onChange={(event) => setRepairCommand(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void startSelfRepair();
-              }}
-            />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={repairRunning || !repairCommand.trim()}
-              onClick={() => void startSelfRepair()}
-            >
-              {repairRunning ? '检测中...' : '运行自修复循环'}
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={
-                !session ||
-                repairVerifying ||
-                Boolean(patchProposal && patchProposal.status !== 'applied')
-              }
-              onClick={() => void verifySelfRepair()}
-            >
-              {repairVerifying ? '验证中...' : '重新验证'}
-            </button>
-            <div className="state-row">
-              <span>Repair</span>
-              <strong>{repairAttempt?.status ?? 'none'}</strong>
-            </div>
-            <div className="repair-message">
-              {repairAttempt?.message ?? '运行后会生成修复记录；需要修改文件时会进入审批流程。'}
-            </div>
-          </div>
-          <div className="shell-box">
-            <div className="todo-title">Shell Runner</div>
-            <input
-              value={shellCommand}
-              onChange={(event) => setShellCommand(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void runShellCommand();
-              }}
-            />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={shellRunning || !shellCommand.trim()}
-              onClick={() => void runShellCommand()}
-            >
-              {shellRunning ? '执行中...' : '运行安全命令'}
-            </button>
-            {shellResult ? (
-              <div className="shell-result">
-                <div className="state-row">
-                  <span>Status</span>
-                  <strong>{shellResult.status}</strong>
-                </div>
-                <div className="state-row">
-                  <span>Safety</span>
-                  <strong>{shellResult.safety}</strong>
-                </div>
-                <pre>{shellResult.stdout || shellResult.stderr || shellResult.decision.reason}</pre>
-              </div>
-            ) : null}
-          </div>
-          <div className="patch-box">
-            <div className="todo-title">Patch Draft</div>
-            <small>{selectedFile?.path ?? '选择文件后编辑草稿'}</small>
-            <textarea
-              value={patchDraft}
-              disabled={!selectedFile}
-              onChange={(event) => setPatchDraft(event.target.value)}
-              rows={6}
-            />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={!selectedFile}
-              onClick={() => void createPatchPreview()}
-            >
-              生成 Diff Preview
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={
-                !patchProposal ||
-                ['discarded', 'applied', 'approved', 'waiting_approval'].includes(
-                  patchProposal.status,
-                )
-              }
-              onClick={() => void discardPatch()}
-            >
-              丢弃 Patch Proposal
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!selectedFile}
-              onClick={() => void requestPatchApproval()}
-            >
-              请求审批
-            </button>
-            <div className="approval-actions">
-              <button
-                type="button"
-                disabled={!approval || approval.status !== 'pending'}
-                onClick={() => void approvePatch()}
-              >
-                批准
-              </button>
-              <button
-                type="button"
-                disabled={!approval || approval.status !== 'pending'}
-                onClick={() => void rejectPatch()}
-              >
-                拒绝
-              </button>
-            </div>
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={!patchProposal || patchProposal.status !== 'approved'}
-              onClick={() => void applyPatch()}
-            >
-              应用已批准 Patch
-            </button>
-            <div className="state-row">
-              <span>Patch</span>
-              <strong>{patchProposal?.status ?? 'none'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Approval</span>
-              <strong>{approval?.status ?? 'none'}</strong>
-            </div>
-            <div className="patch-flow-hint">{patchFlowHint}</div>
-          </div>
-          <div className="agent-run-box">
-            <label htmlFor="agent-prompt">Agent Task</label>
+              ))
+            )}
+          </section>
+
+          <div className="agent-run-box codex-compose">
             <textarea
               id="agent-prompt"
               value={agentPrompt}
               onChange={(event) => setAgentPrompt(event.target.value)}
-              rows={3}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  void sendMessage();
+                }
+              }}
+              rows={4}
+              placeholder="向 ByteSibyl 发送消息..."
             />
-            <button
-              className="primary-action compact"
-              type="button"
-              disabled={agentRunning}
-              onClick={() => void runAgent()}
-            >
-              {agentRunning ? '运行中...' : '运行 Agent Loop'}
-            </button>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!agentRunning || !currentRunId}
-              onClick={() => void cancelAgent()}
-            >
-              取消当前 Run
-            </button>
-          </div>
-          <div className="session-state-box">
-            <div className="todo-title">Session State</div>
-            <div className="state-row">
-              <span>Session</span>
-              <strong>{session?.status ?? 'none'}</strong>
+            <div className="compose-actions">
+              <button type="button" onClick={() => void createSession()}>
+                新建会话
+              </button>
+              <button type="button" disabled={agentRunning || !agentPrompt.trim()} onClick={() => void sendMessage()}>
+                {agentRunning ? '思考中...' : '发送'}
+              </button>
+              <button type="button" disabled={!agentRunning || !currentRunId} onClick={() => void cancelAgent()}>
+                停止
+              </button>
             </div>
-            <div className="state-row">
-              <span>Run</span>
-              <strong>{currentRunId ? currentRunId.slice(0, 8) : 'none'}</strong>
-            </div>
-            <div className="state-row">
-              <span>Persisted runs</span>
-              <strong>{sessionLog?.runs.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Patch proposals</span>
-              <strong>{sessionLog?.patches.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Approvals</span>
-              <strong>{sessionLog?.approvals.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Commands</span>
-              <strong>{sessionLog?.commands.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Repairs</span>
-              <strong>{sessionLog?.repairs.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Model calls</span>
-              <strong>{sessionLog?.modelCalls.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Hooks</span>
-              <strong>{sessionLog?.hooks.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Trace events</span>
-              <strong>{sessionTrace?.timeline.length ?? 0}</strong>
-            </div>
-            <div className="state-row">
-              <span>Eval tasks</span>
-              <strong>{evalTasks.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Subagents</span>
-              <strong>{subagents.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Context summaries</span>
-              <strong>
-                {sessionLog?.runs.reduce(
-                  (total, run) =>
-                    total + run.events.filter((event) => event.type === 'agent.context_summary').length,
-                  0,
-                ) ?? 0}
-              </strong>
-            </div>
-            <div className="state-row">
-              <span>Todos</span>
-              <strong>{todos.length}</strong>
-            </div>
-            <div className="state-row">
-              <span>Skill</span>
-              <strong>{currentSkill?.skill.name ?? 'none'}</strong>
-            </div>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!session}
-              onClick={() => void refreshSessionLog()}
-            >
-              刷新 Session Log
-            </button>
-          </div>
-          <div className="tool-box">
-            <div className="todo-title">Tool System</div>
-            <div className="tool-list">
-              {tools.map((tool) => (
-                <div key={tool.name} className="tool-item">
-                  <strong>{tool.name}</strong>
-                  <span>{tool.permission}</span>
-                </div>
-              ))}
-            </div>
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={!selectedFile}
-              onClick={() => void runReadTool()}
-            >
-              用 read_file 工具读取当前文件
-            </button>
-            {toolResult ? (
-              <pre className={toolResult.ok ? 'tool-result' : 'tool-result error'}>
-                {JSON.stringify(toolResult, null, 2)}
-              </pre>
-            ) : null}
-          </div>
-          <div className="todo-box">
-            <div className="todo-title">Todo Plan</div>
-            <ul>
-              <li className="done">Web IDE 五区布局</li>
-              <li className="done">Workspace 文件树</li>
-              <li className={selectedFile ? 'done' : ''}>读取文件内容</li>
-              <li className={searchMatches.length > 0 ? 'done' : ''}>搜索文本</li>
-              <li className={tools.length > 0 ? 'done' : ''}>注册结构化工具</li>
-              <li className={agentEvents.some((event) => event.type === 'agent.done') ? 'done' : ''}>
-                最小 Agent Loop
-              </li>
-              <li className={sessionLog?.runs.some((run) => run.steps.length > 0) ? 'done' : ''}>
-                持久化 Session Step Log
-              </li>
-              <li className={patchProposal ? 'done' : ''}>生成 Diff Preview</li>
-              <li className={approval ? 'done' : ''}>Human-in-the-loop Approval</li>
-              <li className={patchProposal?.status === 'applied' ? 'done' : ''}>
-                应用已批准 Patch
-              </li>
-              <li className={shellResult ? 'done' : ''}>安全 Shell Runner</li>
-              <li className={repairAttempt ? 'done' : ''}>测试失败后的自修复循环</li>
-              <li className={modelProvider ? 'done' : ''}>Model Provider Integration</li>
-              <li className={diagnostics ? 'done' : ''}>LSP Diagnostics</li>
-              <li className={latestContextSummary ? 'done' : ''}>Context Engine</li>
-              <li className={todos.length > 0 ? 'done' : ''}>Todo Planner</li>
-              <li className={currentSkill ? 'done' : ''}>Skills</li>
-              <li className={(sessionLog?.hooks.length ?? 0) > 0 ? 'done' : ''}>Hooks</li>
-              <li className={(sessionTrace?.timeline.length ?? 0) > 0 ? 'done' : ''}>
-                Trace Replay
-              </li>
-              <li className={evalReport ? 'done' : ''}>Evaluation</li>
-              <li className={subagentSummary ? 'done' : ''}>Subagents</li>
-            </ul>
           </div>
         </aside>
 
         <section className="panel bottom-panel">
           <div className="panel-header">
             <span>Terminal / Command Log / Trace Log</span>
-            <small>Phase 19 engineering route</small>
+            <small>Product P2 real web IDE editing</small>
           </div>
           <div className="log-stream">
             {error ? <div className="log-line error">Error: {error}</div> : null}
@@ -1134,12 +982,48 @@ export default function App() {
               : '等待 Patch Proposal'}
           </span>
         </div>
+        {patchQueue.length > 0 ? (
+          <div className="patch-queue">
+            {patchQueue.map((proposal) => (
+              <button
+                type="button"
+                key={proposal.id}
+                className={patchProposal?.id === proposal.id ? 'active' : ''}
+                onClick={() => {
+                  setPatchProposal(proposal);
+                  void openFile(proposal.path);
+                }}
+              >
+                <span>{proposal.path}</span>
+                <strong>{proposal.status}</strong>
+              </button>
+            ))}
+          </div>
+        ) : null}
         {patchProposal ? (
-          <pre>
-            {patchProposal.unifiedDiff}
-          </pre>
+          <div className="diff-editor-shell">
+            <DiffEditor
+              key={patchProposal.id}
+              original={
+                openFiles.find((file) => file.path === patchProposal.path)?.originalContent ??
+                selectedFile?.content ??
+                ''
+              }
+              modified={patchProposal.updatedContent ?? patchDraft}
+              language={languageForPath(patchProposal.path)}
+              theme="vs-light"
+              options={{
+                readOnly: true,
+                renderSideBySide: true,
+                minimap: { enabled: false },
+                fontSize: 12,
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+              }}
+            />
+          </div>
         ) : (
-          <div className="diff-empty">编辑 Patch Draft 后生成 proposed diff。</div>
+          <div className="diff-empty">编辑器草稿生成 Diff 后会显示 proposed changes。</div>
         )}
       </div>
     </div>
@@ -1202,6 +1086,48 @@ function findFirstFile(node: WorkspaceFileNode): WorkspaceFileNode | null {
 function countFiles(node: WorkspaceFileNode): number {
   if (node.type === 'file') return 1;
   return (node.children ?? []).reduce((total, child) => total + countFiles(child), 0);
+}
+
+function upsertOpenFile(files: OpenFileTab[], next: OpenFileTab): OpenFileTab[] {
+  const exists = files.some((file) => file.path === next.path);
+  if (!exists) return [...files, next].slice(-8);
+  return files.map((file) => (file.path === next.path ? next : file));
+}
+
+function upsertPatchProposal(proposals: PatchProposal[], next: PatchProposal): PatchProposal[] {
+  const exists = proposals.some((proposal) => proposal.id === next.id);
+  if (!exists) return [...proposals, next].slice(-12);
+  return proposals.map((proposal) => (proposal.id === next.id ? next : proposal));
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function languageForPath(path: string): string {
+  const ext = path.split('.').at(-1)?.toLowerCase();
+  switch (ext) {
+    case 'ts':
+      return 'typescript';
+    case 'tsx':
+      return 'typescript';
+    case 'js':
+    case 'jsx':
+      return 'javascript';
+    case 'json':
+      return 'json';
+    case 'css':
+      return 'css';
+    case 'html':
+      return 'html';
+    case 'md':
+      return 'markdown';
+    case 'yml':
+    case 'yaml':
+      return 'yaml';
+    default:
+      return 'plaintext';
+  }
 }
 
 function formatAgentEvent(event: AgentRunEvent): string {

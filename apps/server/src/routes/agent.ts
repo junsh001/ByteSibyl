@@ -28,6 +28,7 @@ export async function registerAgentRoutes(
     subagents: SubagentCoordinator;
     sessionStore: SessionStore;
     hooks: HookRegistry;
+    activateWorkspace?: (workspaceId: string) => Promise<void>;
   },
 ): Promise<void> {
   const controllers = new Map<AgentRunId, AbortController>();
@@ -59,6 +60,9 @@ export async function registerAgentRoutes(
     });
 
     try {
+      if (body.workspaceId && deps.activateWorkspace) {
+        await deps.activateWorkspace(body.workspaceId);
+      }
       const runningSession = await deps.sessionStore.updateSessionStatus(session.id, 'running');
       await deps.sessionStore.updateRunStatus(run.id, 'running');
       const createdEvent: AgentRunEvent = {

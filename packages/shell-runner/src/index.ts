@@ -32,7 +32,7 @@ const SAFE_COMMANDS = new Set([
 const RISKY_COMMANDS = new Set(['npm install', 'git status']);
 
 export class ShellRunner {
-  readonly workspaceRoot: string;
+  workspaceRoot: string;
   private readonly maxOutputBytes: number;
   private readonly defaultTimeoutMs: number;
   private readonly maxTimeoutMs: number;
@@ -42,6 +42,10 @@ export class ShellRunner {
     this.maxOutputBytes = options.maxOutputBytes ?? MAX_OUTPUT_BYTES;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxTimeoutMs = options.maxTimeoutMs ?? MAX_TIMEOUT_MS;
+  }
+
+  setWorkspaceRoot(workspaceRoot: string): void {
+    this.workspaceRoot = resolve(workspaceRoot);
   }
 
   async run(input: RunShellCommandInput): Promise<ShellCommandResult> {

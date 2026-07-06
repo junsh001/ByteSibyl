@@ -16,12 +16,18 @@ import type {
   HookRecord,
   ModelCallTrace,
   ModelCallRecord,
+  MemoryRecord,
   ApprovalTrace,
   CommandTrace,
   FileEditTrace,
   PatchProposal,
   PatchProposalId,
   PatchProposalStatus,
+  ProductTask,
+  ProductTaskId,
+  ProductTaskMessage,
+  ProductTaskStatus,
+  ProductTaskStopReason,
   ShellCommandResult,
   SelfRepairAttempt,
   SessionId,
@@ -40,6 +46,8 @@ interface SessionStoreSnapshot {
   repairs?: SelfRepairAttempt[];
   modelCalls?: ModelCallRecord[];
   hooks?: HookRecord[];
+  tasks?: ProductTask[];
+  memories?: MemoryRecord[];
 }
 
 export class SessionStore {
@@ -51,6 +59,8 @@ export class SessionStore {
   private readonly repairs = new Map<string, SelfRepairAttempt>();
   private readonly modelCalls = new Map<string, ModelCallRecord>();
   private readonly hooks = new Map<string, HookRecord>();
+  private readonly tasks = new Map<ProductTaskId, ProductTask>();
+  private readonly memories = new Map<string, MemoryRecord>();
 
   constructor(private readonly filePath: string) {}
 
@@ -66,6 +76,8 @@ export class SessionStore {
       this.repairs.clear();
       this.modelCalls.clear();
       this.hooks.clear();
+      this.tasks.clear();
+      this.memories.clear();
       for (const session of snapshot.sessions ?? []) this.sessions.set(session.id, session);
       for (const run of snapshot.runs ?? []) this.runs.set(run.id, run);
       for (const patch of snapshot.patches ?? []) this.patches.set(patch.id, patch);
@@ -76,6 +88,8 @@ export class SessionStore {
         this.modelCalls.set(modelCall.id, modelCall);
       }
       for (const hook of snapshot.hooks ?? []) this.hooks.set(hook.id, hook);
+      for (const task of snapshot.tasks ?? []) this.tasks.set(task.id, task);
+      for (const memory of snapshot.memories ?? []) this.memories.set(memory.id, memory);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -99,6 +113,95 @@ export class SessionStore {
 
   getApproval(id: ApprovalRequestId): ApprovalRequest | undefined {
     return this.approvals.get(id);
+  }
+
+  listTasks(sessionId?: SessionId): ProductTask[] {
+    return [...this.tasks.values()]
+      .filter((task) => !sessionId || task.sessionId === sessionId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  getTask(id: ProductTaskId): ProductTask | undefined {
+    return this.tasks.get(id);
+  }
+
+  async createTask(input: {
+    sessionId: SessionId;
+    projectId?: string;
+    workspaceId?: string;
+    title: string;
+    message: string;
+  }): Promise<ProductTask> {
+    this.requireSession(input.sessionId);
+    const now = new Date().toISOString();
+    const userMessage: ProductTaskMessage = {
+      id: randomUUID(),
+      role: 'user',
+      content: input.message,
+      createdAt: now,
+    };
+    const task: ProductTask = {
+      id: randomUUID(),
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      workspaceId: input.workspaceId,
+      title: input.title.trim() || input.message.slice(0, 80) || 'Agent task',
+      status: 'created',
+      conversationSummary: input.message,
+      taskSummary: input.message,
+      messages: [userMessage],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.tasks.set(task.id, task);
+    await this.save();
+    return task;
+  }
+
+  async updateTask(
+    id: ProductTaskId,
+    patch: Partial<Pick<ProductTask, 'activeRunId' | 'latestDecision' | 'conversationSummary' | 'taskSummary'>> & {
+      status?: ProductTaskStatus;
+      stopReason?: ProductTaskStopReason;
+    },
+  ): Promise<ProductTask> {
+    const task = this.requireTask(id);
+    const updated = { ...task, ...patch, updatedAt: new Date().toISOString() };
+    this.tasks.set(id, updated);
+    await this.save();
+    return updated;
+  }
+
+  async appendTaskMessage(
+    taskId: ProductTaskId,
+    message: Omit<ProductTaskMessage, 'id' | 'createdAt'>,
+  ): Promise<ProductTaskMessage> {
+    const task = this.requireTask(taskId);
+    const item: ProductTaskMessage = {
+      ...message,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+    const updated = {
+      ...task,
+      messages: [...task.messages, item],
+      conversationSummary: summarizeMessages([...task.messages, item]),
+      updatedAt: item.createdAt,
+    };
+    this.tasks.set(taskId, updated);
+    await this.save();
+    return item;
+  }
+
+  async saveMemory(record: Omit<MemoryRecord, 'id' | 'createdAt'>): Promise<MemoryRecord> {
+    const memory: MemoryRecord = {
+      ...record,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+    this.memories.set(memory.id, memory);
+    await this.save();
+    return memory;
   }
 
   findPendingApprovalForSubject(subjectId: string): ApprovalRequest | undefined {
@@ -277,11 +380,17 @@ export class SessionStore {
     return records;
   }
 
-  getSessionLog(sessionId: SessionId): SessionLogResponse {
+  getSessionLog(
+    sessionId: SessionId,
+    options: { limit?: number; offset?: number } = {},
+  ): SessionLogResponse {
     const session = this.requireSession(sessionId);
-    const runs = [...this.runs.values()]
+    const allRuns = [...this.runs.values()]
       .filter((run) => run.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const limit = clampPageSize(options.limit);
+    const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+    const runs = allRuns.slice(offset, offset + limit);
     const patches = [...this.patches.values()]
       .filter((patch) => patch.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -300,11 +409,35 @@ export class SessionStore {
     const hooks = [...this.hooks.values()]
       .filter((hook) => hook.sessionId === sessionId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { session, runs, patches, approvals, commands, repairs, modelCalls, hooks };
+    const tasks = this.listTasks(sessionId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const memories = [...this.memories.values()]
+      .filter((memory) => memory.sessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return {
+      session,
+      runs,
+      patches,
+      approvals,
+      commands,
+      repairs,
+      modelCalls,
+      hooks,
+      tasks,
+      memories,
+      page: {
+        limit,
+        offset,
+        totalRuns: allRuns.length,
+        totalEvents: allRuns.reduce((total, run) => total + run.events.length, 0),
+      },
+    };
   }
 
-  getSessionTrace(sessionId: SessionId): SessionTraceExport {
-    const log = this.getSessionLog(sessionId);
+  getSessionTrace(
+    sessionId: SessionId,
+    options: { limit?: number; offset?: number } = {},
+  ): SessionTraceExport {
+    const log = this.getSessionLog(sessionId, { limit: 1000, offset: 0 });
     const modelCalls = log.modelCalls.map(toModelCallTrace);
     const toolCalls = log.runs.flatMap((run) => toToolCallTraces(run));
     const fileEdits = log.patches.map(toFileEditTrace);
@@ -321,16 +454,23 @@ export class SessionStore {
       ...log.hooks.map((hook) => toTimelineEntry(log.session.id, 'hook', hook)),
     ].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id));
 
+    const limit = clampPageSize(options.limit);
+    const offset = Math.max(0, Math.trunc(options.offset ?? 0));
     return {
       session: log.session,
       generatedAt: new Date().toISOString(),
-      timeline,
+      timeline: timeline.slice(offset, offset + limit),
       modelCalls,
       toolCalls,
       fileEdits,
       commands,
       approvals,
       hooks: log.hooks,
+      page: {
+        limit,
+        offset,
+        total: timeline.length,
+      },
     };
   }
 
@@ -358,6 +498,12 @@ export class SessionStore {
     return approval;
   }
 
+  private requireTask(id: ProductTaskId): ProductTask {
+    const task = this.tasks.get(id);
+    if (!task) throw new Error(`task not found: ${id}`);
+    return task;
+  }
+
   private async save(): Promise<void> {
     const snapshot: SessionStoreSnapshot = {
       sessions: this.listSessions(),
@@ -372,6 +518,8 @@ export class SessionStore {
         a.createdAt.localeCompare(b.createdAt),
       ),
       hooks: [...this.hooks.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      tasks: [...this.tasks.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      memories: [...this.memories.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;
@@ -634,4 +782,17 @@ function summarizeEvent(event?: AgentRunEvent): string {
 
 function summarizeText(value: string): string {
   return value.replace(/\s+/gu, ' ').trim().slice(0, 240) || '<empty>';
+}
+
+function clampPageSize(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 50;
+  return Math.max(1, Math.min(Math.trunc(value), 200));
+}
+
+function summarizeMessages(messages: ProductTaskMessage[]): string {
+  return messages
+    .slice(-8)
+    .map((message) => `${message.role}: ${message.content}`)
+    .join('\n')
+    .slice(0, 1600);
 }

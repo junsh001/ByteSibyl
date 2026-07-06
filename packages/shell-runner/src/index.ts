@@ -1,20 +1,41 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { relative, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { evaluateCommandExecution } from '@wac/permission';
-import type { GuardrailViolation, ShellCommandResult, ShellCommandSafety } from '@wac/shared';
+import type {
+  GuardrailViolation,
+  SandboxExecutionInfo,
+  SandboxPolicy,
+  ShellCommandResult,
+  ShellCommandSafety,
+} from '@wac/shared';
+
+const execFileAsync = promisify(execFile);
 
 export interface ShellRunnerOptions {
   workspaceRoot: string;
   maxOutputBytes?: number;
   defaultTimeoutMs?: number;
   maxTimeoutMs?: number;
+  sandboxProvider?: SandboxProvider;
 }
 
 export interface RunShellCommandInput {
   sessionId?: string;
+  taskId?: string;
   command: string;
   timeoutMs?: number;
+}
+
+export interface SandboxProvider {
+  readonly kind: SandboxPolicy['provider'];
+  run(input: SandboxRunInput): Promise<ShellCommandResult>;
+}
+
+export interface SandboxRunInput extends RunProcessInput {
+  policy: SandboxPolicy;
+  beforeChangedFiles: string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -36,12 +57,14 @@ export class ShellRunner {
   private readonly maxOutputBytes: number;
   private readonly defaultTimeoutMs: number;
   private readonly maxTimeoutMs: number;
+  private readonly sandboxProvider: SandboxProvider;
 
   constructor(options: ShellRunnerOptions) {
     this.workspaceRoot = resolve(options.workspaceRoot);
     this.maxOutputBytes = options.maxOutputBytes ?? MAX_OUTPUT_BYTES;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxTimeoutMs = options.maxTimeoutMs ?? MAX_TIMEOUT_MS;
+    this.sandboxProvider = options.sandboxProvider ?? new LocalSandboxProvider();
   }
 
   setWorkspaceRoot(workspaceRoot: string): void {
@@ -62,6 +85,7 @@ export class ShellRunner {
       return {
         id: randomUUID(),
         sessionId: input.sessionId,
+        taskId: input.taskId,
         command: input.command,
         argv: parsed.argv,
         cwd: this.workspaceRoot,
@@ -77,9 +101,18 @@ export class ShellRunner {
       };
     }
 
-    return runProcess({
+    const policy: SandboxPolicy = {
+      provider: this.sandboxProvider.kind,
+      network: 'disabled',
+      timeoutMs,
+      memoryMb: 1024,
+      cpus: 1,
+      secretsInjected: false,
+    };
+    return this.sandboxProvider.run({
       id: randomUUID(),
       sessionId: input.sessionId,
+      taskId: input.taskId,
       command: input.command,
       argv: parsed.argv,
       cwd: this.workspaceRoot,
@@ -89,6 +122,8 @@ export class ShellRunner {
       timeoutMs,
       maxOutputBytes: this.maxOutputBytes,
       decision,
+      policy,
+      beforeChangedFiles: await changedFiles(this.workspaceRoot),
     });
   }
 }
@@ -102,6 +137,7 @@ interface ParsedCommand {
 interface RunProcessInput {
   id: string;
   sessionId?: string;
+  taskId?: string;
   command: string;
   argv: string[];
   cwd: string;
@@ -111,6 +147,28 @@ interface RunProcessInput {
   timeoutMs: number;
   maxOutputBytes: number;
   decision: ShellCommandResult['decision'];
+}
+
+class LocalSandboxProvider implements SandboxProvider {
+  readonly kind = 'local' as const;
+
+  async run(input: SandboxRunInput): Promise<ShellCommandResult> {
+    const result = await runProcess(input);
+    const afterChangedFiles = await changedFiles(input.cwd);
+    return {
+      ...result,
+      sandbox: {
+        provider: this.kind,
+        mode: 'local_fallback',
+        policy: input.policy,
+        beforeChangedFiles: input.beforeChangedFiles,
+        afterChangedFiles,
+        diffSummary: await diffSummary(input.cwd),
+        message:
+          'P4 sandbox provider is active in local fallback mode. Commands run with restricted argv, timeout, output limits, no shell operators, and no secret injection.',
+      },
+    };
+  }
 }
 
 function parseCommand(command: string): ParsedCommand {
@@ -216,6 +274,7 @@ function runProcess(input: RunProcessInput): Promise<ShellCommandResult> {
       resolve({
         id: input.id,
         sessionId: input.sessionId,
+        taskId: input.taskId,
         command: input.command,
         argv: input.argv,
         cwd: input.cwd,
@@ -233,6 +292,29 @@ function runProcess(input: RunProcessInput): Promise<ShellCommandResult> {
       });
     });
   });
+}
+
+async function changedFiles(cwd: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd });
+    return String(stdout)
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function diffSummary(cwd: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', ['diff', '--stat'], { cwd });
+    return String(stdout).trim();
+  } catch {
+    return '';
+  }
 }
 
 function appendLimited(current: string, next: string, maxBytes: number): string {

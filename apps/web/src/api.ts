@@ -8,8 +8,10 @@ import type {
   CreateProjectRequest,
   CreateProjectResponse,
   CreateTaskWorkspaceRequest,
+  CreateWorkspaceEntryRequest,
   CreatePatchPreviewRequest,
   CreatePatchPreviewResponse,
+  DeleteWorkspaceEntryRequest,
   CreateAgentSessionResponse,
   DiagnosticsResponse,
   EvalRunResponse,
@@ -17,7 +19,9 @@ import type {
   HealthResponse,
   ModelProviderStatusResponse,
   PatchProposal,
+  ProductTaskListResponse,
   ReadWorkspaceFileResponse,
+  RenameWorkspaceEntryRequest,
   RequestPatchApprovalResponse,
   SearchTextResponse,
   ShellCommandRequest,
@@ -28,6 +32,7 @@ import type {
   StartSelfRepairRequest,
   StartSelfRepairResponse,
   SessionLogResponse,
+  SessionListResponse,
   SessionTraceExport,
   ToolCallRequest,
   ToolListResponse,
@@ -39,6 +44,9 @@ import type {
   VerifySelfRepairResponse,
   WorkspaceFileNode,
   WorkspaceInfo,
+  WorkspaceMutationResponse,
+  WriteWorkspaceFileRequest,
+  WriteWorkspaceFileResponse,
 } from '@wac/shared';
 
 async function json<T>(res: Response): Promise<T> {
@@ -78,6 +86,30 @@ export const api = {
     fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`).then(
       json<ReadWorkspaceFileResponse>,
     ),
+  writeWorkspaceFile: (request: WriteWorkspaceFileRequest) =>
+    fetch('/api/workspace/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WriteWorkspaceFileResponse>),
+  createWorkspaceEntry: (request: CreateWorkspaceEntryRequest) =>
+    fetch('/api/workspace/entry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WorkspaceMutationResponse>),
+  renameWorkspaceEntry: (request: RenameWorkspaceEntryRequest) =>
+    fetch('/api/workspace/entry', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WorkspaceMutationResponse>),
+  deleteWorkspaceEntry: (request: DeleteWorkspaceEntryRequest) =>
+    fetch('/api/workspace/entry', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WorkspaceMutationResponse>),
   searchWorkspace: (query: string) =>
     fetch(`/api/workspace/search?q=${encodeURIComponent(query)}`).then(json<SearchTextResponse>),
   tools: () => fetch('/api/tools').then(json<ToolListResponse>),
@@ -99,10 +131,17 @@ export const api = {
     fetch(`/api/agent/runs/${runId}/cancel`, { method: 'POST' }).then(
       json<{ run: unknown }>,
     ),
-  sessionLog: (sessionId: string) =>
-    fetch(`/api/sessions/${sessionId}/log`).then(json<SessionLogResponse>),
+  sessions: () => fetch('/api/sessions').then(json<SessionListResponse>),
+  tasks: (sessionId?: string) =>
+    fetch(`/api/tasks${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`).then(
+      json<ProductTaskListResponse>,
+    ),
+  sessionLog: (sessionId: string, limit = 80, offset = 0) =>
+    fetch(`/api/sessions/${sessionId}/log?limit=${limit}&offset=${offset}`).then(
+      json<SessionLogResponse>,
+    ),
   sessionTrace: (sessionId: string) =>
-    fetch(`/api/sessions/${sessionId}/trace`).then(json<SessionTraceExport>),
+    fetch(`/api/sessions/${sessionId}/trace?limit=80`).then(json<SessionTraceExport>),
   createPatchPreview: (request: CreatePatchPreviewRequest) =>
     fetch('/api/patches/preview', {
       method: 'POST',

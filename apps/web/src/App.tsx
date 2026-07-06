@@ -1,5 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
+import {
+  Bot,
+  Check,
+  ChevronRight,
+  Code2,
+  FilePlus2,
+  Files,
+  FolderPlus,
+  GitBranch,
+  GraduationCap,
+  Languages,
+  Lightbulb,
+  Pencil,
+  Play,
+  RotateCcw,
+  Save,
+  Search,
+  Square,
+  Terminal,
+  Trash2,
+  Trophy,
+  Zap,
+} from 'lucide-react';
 import type {
   AgentRunId,
   AgentRunEvent,
@@ -13,6 +36,7 @@ import type {
   HookRecord,
   ModelProviderInfo,
   PatchProposal,
+  ProductTask,
   ProjectRecord,
   SearchTextMatch,
   SelfRepairAttempt,
@@ -46,7 +70,7 @@ interface OpenFileTab {
 
 interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'status' | 'error';
+  role: 'user' | 'assistant' | 'status' | 'tool' | 'command' | 'approval' | 'error';
   content: string;
 }
 
@@ -69,6 +93,7 @@ export default function App() {
   const [openFiles, setOpenFiles] = useState<OpenFileTab[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<SearchTextMatch[]>([]);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set(['']));
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [subagents, setSubagents] = useState<SubagentDefinition[]>([]);
@@ -89,6 +114,7 @@ export default function App() {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [agentPrompt, setAgentPrompt] = useState('修复当前工作区中的 TypeScript 错误');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [currentTask, setCurrentTask] = useState<ProductTask | null>(null);
   const [agentEvents, setAgentEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<AgentRunId | null>(null);
@@ -97,6 +123,8 @@ export default function App() {
   const [sessionTrace, setSessionTrace] = useState<SessionTraceExport | null>(null);
   const [events, setEvents] = useState<AgentShellEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<'code' | 'learn'>('code');
+  const [bottomTab, setBottomTab] = useState<'terminal' | 'problems' | 'output' | 'review'>('terminal');
   const stopAgentStreamRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -105,6 +133,7 @@ export default function App() {
       api.modelProviderStatus(),
       api.workspace(),
       api.projects(),
+      api.sessions(),
       api.workspaceTree(),
       api.tools(),
       api.skills(),
@@ -119,6 +148,7 @@ export default function App() {
           providerResult,
           workspaceResult,
           projectResult,
+          sessionResult,
           treeResult,
           toolResult,
           skillResult,
@@ -141,6 +171,11 @@ export default function App() {
           setDiagnostics(diagnosticsResult);
           setEvalTasks(evalTaskResult.tasks);
           setTodos(todoResult.todos);
+          const latestSession = sessionResult.sessions[0] ?? null;
+          if (latestSession) {
+            setSession(latestSession);
+            void refreshSessionLog(latestSession);
+          }
           if (projectResult.activeProjectId && projectResult.activeWorkspaceId) {
             void api
               .taskWorkspace(projectResult.activeProjectId, projectResult.activeWorkspaceId)
@@ -216,10 +251,12 @@ export default function App() {
 
   async function createSession() {
     setError(null);
-    const result = await api.createSession('Product P2 Web IDE Chat');
+    const result = await api.createSession('Product P3-P5 Coding Task');
     setSession(result.session);
     setSessionLog(null);
     setSessionTrace(null);
+    setCurrentTask(null);
+    setChatMessages([]);
     setEvents([{ type: 'session.created', session: result.session }]);
   }
 
@@ -232,6 +269,9 @@ export default function App() {
     setSession(logResult.session);
     setSessionLog(logResult);
     setSessionTrace(traceResult);
+    const latestTask = logResult.tasks?.at(-1) ?? null;
+    setCurrentTask(latestTask);
+    setChatMessages(rehydrateChatMessages(logResult));
   }
 
   async function refreshDiagnostics() {
@@ -315,6 +355,125 @@ export default function App() {
     );
   }
 
+  async function saveActiveFile() {
+    if (!activeOpenFile || activeOpenFile.readOnly) return;
+    setError(null);
+    try {
+      const result = await api.writeWorkspaceFile({
+        path: activeOpenFile.path,
+        content: activeOpenFile.draftContent,
+      });
+      setSelectedFile({ path: result.path, content: result.content });
+      setOpenFiles((current) =>
+        current.map((file) =>
+          file.path === result.path
+            ? { ...file, originalContent: result.content, draftContent: result.content }
+            : file,
+        ),
+      );
+      setPatchDraft(result.content);
+      setChatMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-save`, role: 'status', content: `已保存 ${result.path}` },
+      ]);
+      await refreshDiagnostics();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function createWorkspaceEntry(parentPath: string, kind: 'file' | 'dir') {
+    const label = kind === 'file' ? '新文件路径' : '新目录路径';
+    const defaultPath = parentPath ? `${parentPath}/` : '';
+    const path = window.prompt(label, defaultPath);
+    if (!path?.trim()) return;
+    setError(null);
+    try {
+      const result = await api.createWorkspaceEntry({ path: path.trim(), kind });
+      setTree(result.tree);
+      expandParent(path.trim());
+      if (kind === 'file') void openFile(path.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function renameWorkspaceEntry(path: string) {
+    const nextPath = window.prompt('重命名为', path);
+    if (!nextPath?.trim() || nextPath.trim() === path) return;
+    setError(null);
+    try {
+      const result = await api.renameWorkspaceEntry({ fromPath: path, toPath: nextPath.trim() });
+      setTree(result.tree);
+      setExpandedDirs((current) => {
+        const next = new Set(current);
+        if (next.has(path)) {
+          next.delete(path);
+          next.add(nextPath.trim());
+        }
+        return next;
+      });
+      setOpenFiles((current) =>
+        current.map((file) =>
+          file.path === path
+            ? { ...file, path: nextPath.trim() }
+            : file.path.startsWith(`${path}/`)
+              ? { ...file, path: `${nextPath.trim()}${file.path.slice(path.length)}` }
+              : file,
+        ),
+      );
+      if (selectedFile?.path === path || selectedFile?.path.startsWith(`${path}/`)) {
+        const renamedPath =
+          selectedFile.path === path
+            ? nextPath.trim()
+            : `${nextPath.trim()}${selectedFile.path.slice(path.length)}`;
+        const file = await api.readWorkspaceFile(renamedPath).catch(() => null);
+        if (file) {
+          setSelectedFile(file);
+          setPatchDraft(file.content);
+        } else {
+          setSelectedFile(null);
+          setPatchDraft('');
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteWorkspaceEntry(path: string) {
+    if (!window.confirm(`删除 ${path}？`)) return;
+    setError(null);
+    try {
+      const result = await api.deleteWorkspaceEntry({ path });
+      setTree(result.tree);
+      setOpenFiles((current) =>
+        current.filter((file) => file.path !== path && !file.path.startsWith(`${path}/`)),
+      );
+      if (selectedFile?.path === path || selectedFile?.path.startsWith(`${path}/`)) {
+        setSelectedFile(null);
+        setPatchDraft('');
+        setPatchProposal(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function toggleDirectory(path: string) {
+    setExpandedDirs((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  function expandParent(path: string) {
+    const parent = path.split('/').slice(0, -1).join('/');
+    setExpandedDirs((current) => new Set([...current, parent]));
+  }
+
   async function createPatchPreview() {
     if (!selectedFile) return;
     setError(null);
@@ -331,7 +490,7 @@ export default function App() {
   async function createPatchPreviewForSelectedFile() {
     if (!selectedFile) throw new Error('请选择文件后再生成 Patch Preview。');
     const activeSession =
-      session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+      session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
     setSession(activeSession);
     const result = await api.createPatchPreview({
       sessionId: activeSession.id,
@@ -369,6 +528,16 @@ export default function App() {
       setPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval ?? null);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-approval`,
+          role: 'approval',
+          content: result.approval
+            ? `已请求审批：${proposal.path}`
+            : `审批策略：${result.decision.reason}`,
+        },
+      ]);
       if (result.decision.effect === 'deny') {
         const message = result.decision.violations.map((violation) => violation.message).join(' ');
         setError(message || result.decision.reason);
@@ -387,6 +556,10 @@ export default function App() {
       setPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
+      setChatMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-approved`, role: 'approval', content: `已批准 Patch：${result.proposal.path}` },
+      ]);
       await refreshSessionLog();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -401,6 +574,10 @@ export default function App() {
       setPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
+      setChatMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-rejected`, role: 'approval', content: `已拒绝 Patch：${result.proposal.path}` },
+      ]);
       await refreshSessionLog();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -426,6 +603,10 @@ export default function App() {
         ),
       );
       await refreshSessionLog();
+      setChatMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-applied`, role: 'approval', content: `已应用 Patch：${result.proposal.path}` },
+      ]);
       setTree(await api.workspaceTree());
       await refreshDiagnostics();
     } catch (err) {
@@ -458,14 +639,23 @@ export default function App() {
     setShellRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+        session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
       setSession(activeSession);
       const result = await api.runShellCommand({
         sessionId: activeSession.id,
+        taskId: currentTask?.id,
         command: shellCommand,
         timeoutMs: 10_000,
       });
       setShellResult(result.result);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-command`,
+          role: 'command',
+          content: `命令 ${result.result.command} ${result.result.status}${result.result.exitCode === undefined ? '' : ` exit=${result.result.exitCode}`}`,
+        },
+      ]);
       await refreshSessionLog(activeSession);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -489,11 +679,12 @@ export default function App() {
     setAgentPrompt('');
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+        session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
       setSession(activeSession);
       stopAgentStreamRef.current = api.runAgent(
         {
           sessionId: activeSession.id,
+          taskId: currentTask?.status === 'completed' || currentTask?.status === 'failed' ? undefined : currentTask?.id,
           workspaceId: activeTaskWorkspace?.id,
           message,
           maxIterations: 6,
@@ -527,6 +718,34 @@ export default function App() {
           if (event.type === 'agent.run_created') {
             setSession(event.session);
             setCurrentRunId(event.run.id);
+          }
+          if (event.type === 'agent.tool_call') {
+            setChatMessages((current) => [
+              ...current,
+              { id: `${Date.now()}-tool-call`, role: 'tool', content: `调用工具 ${event.call.name}` },
+            ]);
+          }
+          if (event.type === 'agent.tool_result') {
+            setChatMessages((current) => [
+              ...current,
+              {
+                id: `${Date.now()}-tool-result`,
+                role: 'tool',
+                content: event.result.ok
+                  ? `工具 ${event.result.name} 完成`
+                  : `工具 ${event.result.name} 失败：${event.result.error ?? 'unknown error'}`,
+              },
+            ]);
+          }
+          if (event.type === 'agent.model_call') {
+            setChatMessages((current) => [
+              ...current,
+              {
+                id: `${Date.now()}-model`,
+                role: 'status',
+                content: `模型 ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`,
+              },
+            ]);
           }
           if (event.type === 'agent.todo_updated') {
             setTodos(event.todos);
@@ -580,7 +799,7 @@ export default function App() {
     setRepairRunning(true);
     try {
       const activeSession =
-        session ?? (await api.createSession('Product P2 Web IDE Chat')).session;
+        session ?? (await api.createSession('Product P3-P5 Coding Task')).session;
       setSession(activeSession);
       const result = await api.startSelfRepair({
         sessionId: activeSession.id,
@@ -695,24 +914,64 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Product P2</p>
-          <h1>Web AI Coding Agent Lab</h1>
+    <div className="codeforge-shell">
+      <header className="codeforge-header">
+        <div className="brand-lockup">
+          <span className="brand-mark">
+            <Zap size={16} strokeWidth={2.5} />
+          </span>
+          <div>
+            <strong>ByteSibyl</strong>
+            <small>Web AI Coding Agent</small>
+          </div>
         </div>
-        <div className="status-group">
-          <span className={health?.ok ? 'status-dot ok' : 'status-dot'} />
-          <span>{health ? `${health.service} · ${health.phase}` : '连接 Server 中'}</span>
+
+        <div className="view-tabs" role="tablist" aria-label="Workspace views">
+          <button
+            type="button"
+            className={view === 'code' ? 'active' : ''}
+            onClick={() => setView('code')}
+          >
+            <Code2 size={14} />
+            Editor
+          </button>
+          <button
+            type="button"
+            className={view === 'learn' ? 'active' : ''}
+            onClick={() => setView('learn')}
+          >
+            <GraduationCap size={14} />
+            Learn
+          </button>
+        </div>
+
+        <div className="header-meta">
+          <span className="model-pill">
+            <span className={health?.ok ? 'status-dot ok' : 'status-dot'} />
+            {modelProvider ? `${modelProvider.provider}/${modelProvider.model}` : health?.phase ?? '连接中'}
+          </span>
+          <span className="xp-pill">
+            <Trophy size={13} />
+            {todos.filter((todo) => todo.status === 'done').length}/{todos.length || 0} tasks
+          </span>
+          <button type="button" title="中文 / English">
+            <Languages size={14} />
+            中
+          </button>
         </div>
       </header>
 
-      <main className="ide-grid">
-        <aside className="panel file-tree">
-          <div className="panel-header">
-            <span>{workspace?.rootName ?? 'Workspace'}</span>
+      {view === 'code' ? (
+        <main className="codeforge-workspace">
+          <aside className="file-panel workspace-panel">
+          <div className="sidebar-heading">
+            <span>FILES</span>
             <small>{tree ? `${countFiles(tree)} files` : 'loading'}</small>
           </div>
+          <section className="workspace-card">
+            <strong>{workspace?.rootName ?? 'Workspace'}</strong>
+            <span>{activeTaskWorkspace?.branch ?? 'no isolated branch'}</span>
+          </section>
           <div className="workspace-tools">
             <input
               value={searchQuery}
@@ -720,49 +979,53 @@ export default function App() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void search();
               }}
-              placeholder="搜索文本"
+              placeholder="Search"
             />
-            <button type="button" onClick={() => void search()}>
-              搜索
+            <button type="button" onClick={() => void search()} title="Search">
+              <Search size={14} />
             </button>
           </div>
           <div className="tree-scroll">
             {tree ? (
-              <FileTreeNode node={tree} selectedPath={selectedFile?.path} onOpen={openFile} />
+              <FileTreeNode
+                node={tree}
+                selectedPath={selectedFile?.path}
+                expandedDirs={expandedDirs}
+                onToggle={toggleDirectory}
+                onOpen={openFile}
+                onCreate={createWorkspaceEntry}
+                onRename={renameWorkspaceEntry}
+                onDelete={deleteWorkspaceEntry}
+              />
             ) : (
               <div className="empty-state">加载中...</div>
             )}
           </div>
           {searchMatches.length > 0 ? (
-            <div className="search-results">
-              {searchMatches.map((match) => (
-                <button
-                  type="button"
-                  key={`${match.path}:${match.line}:${match.column}`}
-                  onClick={() => void openFile(match.path)}
-                >
-                  <strong>{match.path}</strong>
-                  <span>
-                    {match.line}:{match.column} {match.snippet}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <details className="sidebar-results" open>
+              <summary>Search Results</summary>
+              <div className="search-results">
+                {searchMatches.map((match) => (
+                  <button
+                    type="button"
+                    key={`${match.path}:${match.line}:${match.column}`}
+                    onClick={() => void openFile(match.path)}
+                  >
+                    <strong>{match.path}</strong>
+                    <span>
+                      {match.line}:{match.column} {match.snippet}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </details>
           ) : null}
-        </aside>
+          </aside>
 
-        <section className="panel editor">
-          <div className="panel-header">
-            <span>{selectedFile?.path ?? 'Editor'}</span>
-            <small>
-              {activeOpenFile
-                ? `${activeOpenFile.draftContent.split(/\r?\n/).length} lines${isEditorDirty ? ' · dirty' : ''}${activeOpenFile.readOnly ? ' · read-only' : ''}`
-                : 'Monaco'}
-            </small>
-          </div>
+          <section className="editor-panel workspace-panel">
           <div className="editor-tabs">
             {openFiles.length === 0 ? (
-              <span>从左侧文件树打开文件</span>
+              <span>Open a file from Explorer</span>
             ) : (
               openFiles.map((file) => (
                 <button
@@ -773,31 +1036,47 @@ export default function App() {
                 >
                   <span>{file.path.split('/').at(-1) ?? file.path}</span>
                   {file.draftContent !== file.originalContent ? <strong>●</strong> : null}
-                  <i onClick={(event) => {
-                    event.stopPropagation();
-                    closeFile(file.path);
-                  }}>
+                  <i
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeFile(file.path);
+                    }}
+                  >
                     ×
                   </i>
                 </button>
               ))
             )}
           </div>
+          <div className="editor-breadcrumb">
+            <span>{selectedFile?.path ?? 'No file selected'}</span>
+            <small>
+              {activeOpenFile
+                ? `${activeOpenFile.draftContent.split(/\r?\n/).length} lines${isEditorDirty ? ' · unsaved draft' : ''}${activeOpenFile.readOnly ? ' · read-only' : ''}`
+                : 'Monaco Editor'}
+            </small>
+          </div>
           <div className="editor-toolbar">
+            <button type="button" disabled={!isEditorDirty || activeOpenFile?.readOnly} onClick={() => void saveActiveFile()}>
+              <Save size={13} />
+              Save
+            </button>
             <button type="button" disabled={!selectedFile || activeOpenFile?.readOnly} onClick={() => void createPatchPreview()}>
-              生成 Diff
+              Review Changes
             </button>
             <button type="button" disabled={!isEditorDirty} onClick={resetEditorDraft}>
-              放弃草稿
+              <RotateCcw size={13} />
+              Discard Draft
             </button>
             <button type="button" disabled={!selectedFile} onClick={() => void requestPatchApproval()}>
-              请求审批
+              Request Approval
             </button>
             <button type="button" disabled={!approval || approval.status !== 'pending'} onClick={() => void approvePatch()}>
-              批准
+              <Check size={13} />
+              Approve
             </button>
             <button type="button" disabled={!patchProposal || patchProposal.status !== 'approved'} onClick={() => void applyPatch()}>
-              应用
+              Apply
             </button>
             <span>{patchFlowHint}</span>
           </div>
@@ -820,31 +1099,40 @@ export default function App() {
                 onChange={updateEditorDraft}
               />
             ) : (
-              <div className="editor-empty">选择左侧文件后开始编辑草稿。</div>
+              <div className="editor-empty">Select a file to start editing.</div>
             )}
           </div>
-        </section>
+          </section>
 
-        <aside className="panel agent-panel product-agent-panel">
-          <div className="panel-header">
-            <span>AI Assistant</span>
-            <small>{sessionLabel}</small>
-          </div>
-          <section className="chat-workspace-strip" aria-label="Workspace status">
+          <aside className="chat-panel workspace-panel">
+          <header className="assistant-header">
             <div>
+              <strong>
+                <Bot size={14} />
+                ByteSibyl Chat
+              </strong>
+              <span>{currentTask?.status ?? session?.status ?? 'ready'}</span>
+            </div>
+            <button type="button" onClick={() => void createSession()} title="New chat">
+              +
+            </button>
+          </header>
+
+          <section className="assistant-context">
+            <div>
+              <span>Workspace</span>
               <strong>{activeProject?.name ?? '未绑定项目'}</strong>
-              <span>{activeTaskWorkspace?.branch ?? '未创建隔离工作区'}</span>
             </div>
             <small>{activeTaskWorkspace?.changedFiles.length ?? 0} changed</small>
             <details>
-              <summary>项目设置</summary>
+              <summary>Project setup</summary>
               <input
                 value={repoPath}
                 onChange={(event) => setRepoPath(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void createProject();
                 }}
-                placeholder="Git repo path，例如 ."
+                placeholder="Git repo path"
               />
               <input
                 value={branchName}
@@ -852,14 +1140,14 @@ export default function App() {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void createTaskWorkspace();
                 }}
-                placeholder="分支名可选"
+                placeholder="Branch name optional"
               />
               <div className="project-actions">
                 <button type="button" onClick={() => void createProject()}>
-                  绑定项目
+                  Bind
                 </button>
                 <button type="button" disabled={!activeProject} onClick={() => void createTaskWorkspace()}>
-                  创建工作区
+                  Isolate
                 </button>
               </div>
             </details>
@@ -868,8 +1156,8 @@ export default function App() {
           <section className="assistant-thread" aria-label="AI conversation">
             {visibleChatMessages.length === 0 ? (
               <div className="assistant-empty">
-                像 IDE 插件聊天框一样描述任务。ByteSibyl 会在当前隔离 workspace 中读取上下文，
-                需要修改文件时生成 Patch Proposal。
+                Ask ByteSibyl to inspect, edit, or validate this isolated workspace. Tool calls,
+                commands, approvals, and results will appear here.
               </div>
             ) : (
               visibleChatMessages.map((message) => (
@@ -880,7 +1168,7 @@ export default function App() {
             )}
           </section>
 
-          <div className="agent-run-box codex-compose">
+          <footer className="chat-composer">
             <textarea
               id="agent-prompt"
               value={agentPrompt}
@@ -891,186 +1179,428 @@ export default function App() {
                 }
               }}
               rows={4}
-              placeholder="向 ByteSibyl 发送消息..."
+              placeholder="Ask ByteSibyl..."
             />
             <div className="compose-actions">
-              <button type="button" onClick={() => void createSession()}>
-                新建会话
-              </button>
               <button type="button" disabled={agentRunning || !agentPrompt.trim()} onClick={() => void sendMessage()}>
-                {agentRunning ? '思考中...' : '发送'}
+                <Play size={14} />
+                {agentRunning ? 'Thinking' : 'Send'}
               </button>
               <button type="button" disabled={!agentRunning || !currentRunId} onClick={() => void cancelAgent()}>
-                停止
+                <Square size={13} />
+                Stop
               </button>
             </div>
-          </div>
-        </aside>
+          </footer>
+          </aside>
 
-        <section className="panel bottom-panel">
-          <div className="panel-header">
-            <span>Terminal / Command Log / Trace Log</span>
-            <small>Product P2 real web IDE editing</small>
-          </div>
-          <div className="log-stream">
-            {error ? <div className="log-line error">Error: {error}</div> : null}
-            {events.length === 0 ? (
-              <div className="log-line muted">等待 session 或 agent 事件...</div>
-            ) : (
-              events.map((event, index) => (
-                <div className="log-line" key={`${event.type}-${index}`}>
-                  {event.type === 'session.created'
-                    ? `session.created ${event.session.id}`
-                    : `${event.type} ${event.message}`}
-                </div>
-              ))
-            )}
-            {agentEvents.map((event, index) => (
-              <div className="log-line" key={`agent-${index}`}>
-                {formatAgentEvent(event)}
-              </div>
-            ))}
-            {sessionLog?.runs.flatMap((run) =>
-              run.steps.slice(-6).map((step) => (
-                <div className="log-line muted" key={step.id}>
-                  persisted {run.id.slice(0, 8)} {step.type} {step.title}
-                </div>
-              )),
-            )}
-            {sessionLog?.patches.slice(-5).map((patch) => (
-              <div className="log-line muted" key={patch.id}>
-                patch {patch.id.slice(0, 8)} {patch.status} {patch.path} +{patch.additions} -
-                {patch.deletions}
-              </div>
-            ))}
-            {sessionLog?.approvals.slice(-5).map((item) => (
-              <div className="log-line muted" key={item.id}>
-                approval {item.id.slice(0, 8)} {item.status} {item.action} {item.subjectId.slice(0, 8)}
-              </div>
-            ))}
-            {sessionLog?.commands.slice(-5).map((command) => (
-              <div className="log-line muted" key={command.id}>
-                command {command.id.slice(0, 8)} {command.status} {command.command}
-              </div>
-            ))}
-            {sessionLog?.repairs.slice(-5).map((repair) => (
-              <div className="log-line muted" key={repair.id}>
-                repair {repair.id.slice(0, 8)} {repair.status} {repair.message}
-              </div>
-            ))}
-            {sessionLog?.modelCalls.slice(-5).map((call) => (
-              <div className="log-line muted" key={call.id}>
-                model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
-                {call.latencyMs}ms
-              </div>
-            ))}
-            {sessionLog?.hooks.slice(-8).map((hook) => (
-              <div className="log-line muted" key={hook.id}>
-                hook {formatHookRecord(hook)}
-              </div>
-            ))}
-          </div>
-        </section>
-      </main>
-
-      <div className="diff-preview" aria-label="Diff Preview">
-        <div className="diff-preview-header">
-          <strong>Diff Preview</strong>
-          <span>
-            {patchProposal
-              ? `${patchProposal.path} +${patchProposal.additions} -${patchProposal.deletions}`
-              : '等待 Patch Proposal'}
-          </span>
-        </div>
-        {patchQueue.length > 0 ? (
-          <div className="patch-queue">
-            {patchQueue.map((proposal) => (
+          <section className="bottom-panel workspace-panel">
+            <div className="bottom-tabs" role="tablist" aria-label="Workbench panel">
               <button
                 type="button"
-                key={proposal.id}
-                className={patchProposal?.id === proposal.id ? 'active' : ''}
-                onClick={() => {
-                  setPatchProposal(proposal);
-                  void openFile(proposal.path);
-                }}
+                className={bottomTab === 'terminal' ? 'active' : ''}
+                onClick={() => setBottomTab('terminal')}
               >
-                <span>{proposal.path}</span>
-                <strong>{proposal.status}</strong>
+                <Terminal size={13} />
+                Terminal
               </button>
-            ))}
-          </div>
-        ) : null}
-        {patchProposal ? (
-          <div className="diff-editor-shell">
-            <DiffEditor
-              key={patchProposal.id}
-              original={
-                openFiles.find((file) => file.path === patchProposal.path)?.originalContent ??
-                selectedFile?.content ??
-                ''
-              }
-              modified={patchProposal.updatedContent ?? patchDraft}
-              language={languageForPath(patchProposal.path)}
-              theme="vs-light"
-              options={{
-                readOnly: true,
-                renderSideBySide: true,
-                minimap: { enabled: false },
-                fontSize: 12,
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-              }}
-            />
-          </div>
-        ) : (
-          <div className="diff-empty">编辑器草稿生成 Diff 后会显示 proposed changes。</div>
-        )}
-      </div>
+              <button
+                type="button"
+                className={bottomTab === 'problems' ? 'active' : ''}
+                onClick={() => setBottomTab('problems')}
+              >
+                Problems {diagnostics?.diagnostics.length ?? 0}
+              </button>
+              <button
+                type="button"
+                className={bottomTab === 'output' ? 'active' : ''}
+                onClick={() => setBottomTab('output')}
+              >
+                Output
+              </button>
+              <button
+                type="button"
+                className={bottomTab === 'review' ? 'active' : ''}
+                onClick={() => setBottomTab('review')}
+              >
+                Review
+              </button>
+            </div>
+
+            {bottomTab === 'terminal' ? (
+              <div className="terminal-panel">
+                <div className="terminal-output">
+                  {shellResult ? (
+                    <>
+                      <div className={`terminal-line ${shellResult.status}`}>
+                        $ {shellResult.command} · {shellResult.status}
+                        {shellResult.exitCode === undefined ? '' : ` · exit ${shellResult.exitCode}`}
+                      </div>
+                      {shellResult.stdout ? <pre>{shellResult.stdout}</pre> : null}
+                      {shellResult.stderr ? <pre className="stderr">{shellResult.stderr}</pre> : null}
+                      {shellResult.sandbox ? (
+                        <div className="terminal-line muted">{shellResult.sandbox.message}</div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="terminal-line muted">
+                      终端连接 Shell Runner。当前 guardrails 只允许白名单命令，例如 npm run
+                      typecheck、npm run build。
+                    </div>
+                  )}
+                </div>
+                <div className="terminal-command">
+                  <span>$</span>
+                  <input
+                    value={shellCommand}
+                    onChange={(event) => setShellCommand(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void runShellCommand();
+                    }}
+                    placeholder="npm run typecheck"
+                  />
+                  <button type="button" disabled={shellRunning || !shellCommand.trim()} onClick={() => void runShellCommand()}>
+                    {shellRunning ? 'Running' : 'Run'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {bottomTab === 'problems' ? (
+              <div className="bottom-content">
+                {error ? <div className="log-line error">Error: {error}</div> : null}
+                <div className="diagnostic-list compact">
+                  {diagnostics && diagnostics.diagnostics.length > 0 ? (
+                    diagnostics.diagnostics.map((diagnostic) => (
+                      <button
+                        type="button"
+                        key={`${diagnostic.path}:${diagnostic.line}:${diagnostic.column}:${diagnostic.message}`}
+                        onClick={() => void openFile(diagnostic.path)}
+                      >
+                        <span className={`diagnostic-severity ${diagnostic.severity}`}>
+                          {diagnostic.severity}
+                        </span>
+                        <strong>{diagnostic.path}</strong>
+                        <span>
+                          {diagnostic.line}:{diagnostic.column} {diagnostic.message}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="diagnostic-empty">暂无诊断结果。</div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {bottomTab === 'output' ? (
+              <div className="log-stream">
+                {events.map((event, index) => (
+                  <div className="log-line" key={`${event.type}-${index}`}>
+                    {event.type === 'session.created'
+                      ? `session.created ${event.session.id}`
+                      : `${event.type} ${event.message}`}
+                  </div>
+                ))}
+                {agentEvents.map((event, index) => (
+                  <div className="log-line" key={`agent-${index}`}>
+                    {formatAgentEvent(event)}
+                  </div>
+                ))}
+                {sessionLog?.commands.slice(-5).map((command) => (
+                  <div className="log-line muted" key={command.id}>
+                    command {command.id.slice(0, 8)} {command.status} {command.command}
+                  </div>
+                ))}
+                {sessionLog?.modelCalls.slice(-5).map((call) => (
+                  <div className="log-line muted" key={call.id}>
+                    model {call.id.slice(0, 8)} {call.provider}/{call.model} {call.status}{' '}
+                    {call.latencyMs}ms
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {bottomTab === 'review' ? (
+              <div className="review-panel">
+                {patchQueue.length > 0 ? (
+                  <div className="patch-queue">
+                    {patchQueue.map((proposal) => (
+                      <button
+                        type="button"
+                        key={proposal.id}
+                        className={patchProposal?.id === proposal.id ? 'active' : ''}
+                        onClick={() => {
+                          setPatchProposal(proposal);
+                          void openFile(proposal.path);
+                        }}
+                      >
+                        <span>{proposal.path}</span>
+                        <strong>{proposal.status}</strong>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {patchProposal ? (
+                  <div className="diff-editor-shell">
+                    <DiffEditor
+                      key={patchProposal.id}
+                      original={
+                        openFiles.find((file) => file.path === patchProposal.path)?.originalContent ??
+                        selectedFile?.content ??
+                        ''
+                      }
+                      modified={patchProposal.updatedContent ?? patchDraft}
+                      language={languageForPath(patchProposal.path)}
+                      theme="vs-light"
+                      options={{
+                        readOnly: true,
+                        renderSideBySide: true,
+                        minimap: { enabled: false },
+                        fontSize: 12,
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="diff-empty">Generate a review from an editor draft to inspect changes.</div>
+                )}
+              </div>
+            ) : null}
+          </section>
+        </main>
+      ) : (
+        <main className="learn-workspace">
+          <section className="learn-hero">
+            <div>
+              <div className="learn-kicker">
+                <SparkIcon />
+                产品化学习路径
+              </div>
+              <h1>搭一个能真实工作的 Web AI Coding Agent</h1>
+              <p>
+                这里保留原始 CodeForge 的学习页结构，但内容改成当前产品化进度：
+                项目隔离、真实编辑、Patch 审批、Shell、上下文、Skills、Hooks、Trace 与 Evaluation。
+              </p>
+            </div>
+            <div className="learn-score">
+              <strong>{todos.filter((todo) => todo.status === 'done').length}</strong>
+              <span>completed tasks</span>
+            </div>
+          </section>
+
+          <section className="lesson-grid">
+            <article className="lesson-card active">
+              <span>01</span>
+              <div>
+                <strong>真实项目工作区</strong>
+                <small>{activeProject?.name ?? '尚未绑定项目'}</small>
+              </div>
+            </article>
+            <article className="lesson-card active">
+              <span>02</span>
+              <div>
+                <strong>Agent 对话与工具调用</strong>
+                <small>{sessionLabel}</small>
+              </div>
+            </article>
+            <article className="lesson-card active">
+              <span>03</span>
+              <div>
+                <strong>Patch 审批流</strong>
+                <small>{patchProposal?.status ?? '暂无 proposal'}</small>
+              </div>
+            </article>
+            <article className="lesson-card">
+              <span>04</span>
+              <div>
+                <strong>评估与可观测性</strong>
+                <small>{evalReport ? `${evalReport.passedCount}/${evalReport.taskCount} passed` : `${evalTasks.length} eval tasks`}</small>
+              </div>
+            </article>
+          </section>
+
+          <section className="learn-columns">
+            <article className="learn-panel">
+              <header>
+                <strong>任务计划</strong>
+                <small>{todos.length} items</small>
+              </header>
+              <TodoPanel todos={todos} />
+            </article>
+
+            <article className="learn-panel">
+              <header>
+                <strong>诊断</strong>
+                <button type="button" disabled={diagnosticsLoading} onClick={() => void refreshDiagnostics()}>
+                  {diagnosticsLoading ? '刷新中' : '刷新'}
+                </button>
+              </header>
+              <div className="diagnostic-list compact">
+                {diagnostics && diagnostics.diagnostics.length > 0 ? (
+                  diagnostics.diagnostics.slice(0, 8).map((diagnostic) => (
+                    <button
+                      type="button"
+                      key={`${diagnostic.path}:${diagnostic.line}:${diagnostic.message}`}
+                      onClick={() => void openFile(diagnostic.path)}
+                    >
+                      <span className={`diagnostic-severity ${diagnostic.severity}`}>
+                        {diagnostic.severity}
+                      </span>
+                      <strong>{diagnostic.path}</strong>
+                      <span>
+                        {diagnostic.line}:{diagnostic.column} {diagnostic.message}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="diagnostic-empty">暂无诊断结果。</div>
+                )}
+              </div>
+            </article>
+
+            <article className="learn-panel">
+              <header>
+                <strong>Agent 能力</strong>
+                <small>{tools.length} tools</small>
+              </header>
+              <div className="capability-list">
+                <span><Files size={13} /> Tools {tools.length}</span>
+                <span><Lightbulb size={13} /> Skills {skills.length}</span>
+                <span><Bot size={13} /> Subagents {subagents.length}</span>
+                <span><GitBranch size={13} /> Hooks blocked {blockedHookCount}</span>
+              </div>
+              <details className="learn-details">
+                <summary>最新上下文摘要</summary>
+                <p>
+                  {latestContextSummary
+                    ? `${latestContextSummary.relevantFiles.length} files, ${latestContextSummary.diagnostics.length} diagnostics, ${latestContextSummary.budget.usedChars}/${latestContextSummary.budget.maxChars} chars`
+                    : '尚未生成上下文摘要。'}
+                </p>
+              </details>
+            </article>
+
+            <article className="learn-panel">
+              <header>
+                <strong>Trace Replay</strong>
+                <button type="button" disabled={evalRunning} onClick={() => void runEvaluation()}>
+                  {evalRunning ? '运行中' : 'Run Eval'}
+                </button>
+              </header>
+              {sessionTrace ? <TraceViewer trace={sessionTrace} /> : <div className="diagnostic-empty">暂无 Trace。</div>}
+            </article>
+          </section>
+        </main>
+      )}
+
+      <footer className="codeforge-statusbar">
+        <span>
+          <GitBranch size={13} />
+          {activeTaskWorkspace?.branch ?? 'no-workspace'}
+        </span>
+        <span>{selectedFile?.path ?? 'No file'}</span>
+        <span>{modelProvider ? `${modelProvider.provider}/${modelProvider.model}` : 'model loading'}</span>
+      </footer>
     </div>
   );
+}
+
+function SparkIcon() {
+  return <Zap size={14} />;
 }
 
 function FileTreeNode({
   node,
   selectedPath,
+  expandedDirs,
+  onToggle,
   onOpen,
+  onCreate,
+  onRename,
+  onDelete,
   depth = 0,
 }: {
   node: WorkspaceFileNode;
   selectedPath?: string;
+  expandedDirs: Set<string>;
+  onToggle: (path: string) => void;
   onOpen: (path: string) => Promise<void>;
+  onCreate: (parentPath: string, kind: 'file' | 'dir') => Promise<void>;
+  onRename: (path: string) => Promise<void>;
+  onDelete: (path: string) => Promise<void>;
   depth?: number;
 }) {
   if (node.type === 'dir') {
+    const expanded = expandedDirs.has(node.path);
     return (
       <div>
-        {node.path ? (
-          <div className="tree-row folder" style={{ paddingLeft: 8 + depth * 14 }}>
-            {node.name}
-          </div>
-        ) : null}
-        {node.children?.map((child) => (
-          <FileTreeNode
-            key={child.path || child.name}
-            node={child}
-            selectedPath={selectedPath}
-            onOpen={onOpen}
-            depth={node.path ? depth + 1 : depth}
-          />
-        ))}
+        <div className="tree-row folder tree-entry" style={{ paddingLeft: 8 + depth * 14 }}>
+          <button
+            type="button"
+            className="tree-main"
+            onClick={() => onToggle(node.path)}
+            title={expanded ? '折叠目录' : '展开目录'}
+          >
+            <ChevronRight size={13} className={expanded ? 'expanded' : ''} />
+            <span>{node.path ? node.name : node.name || 'Workspace'}</span>
+          </button>
+          <span className="tree-actions">
+            <button type="button" title="新建文件" onClick={() => void onCreate(node.path, 'file')}>
+              <FilePlus2 size={12} />
+            </button>
+            <button type="button" title="新建目录" onClick={() => void onCreate(node.path, 'dir')}>
+              <FolderPlus size={12} />
+            </button>
+            {node.path ? (
+              <>
+                <button type="button" title="重命名" onClick={() => void onRename(node.path)}>
+                  <Pencil size={12} />
+                </button>
+                <button type="button" title="删除" onClick={() => void onDelete(node.path)}>
+                  <Trash2 size={12} />
+                </button>
+              </>
+            ) : null}
+          </span>
+        </div>
+        {expanded
+          ? node.children?.map((child) => (
+              <FileTreeNode
+                key={child.path || child.name}
+                node={child}
+                selectedPath={selectedPath}
+                expandedDirs={expandedDirs}
+                onToggle={onToggle}
+                onOpen={onOpen}
+                onCreate={onCreate}
+                onRename={onRename}
+                onDelete={onDelete}
+                depth={node.path ? depth + 1 : depth}
+              />
+            ))
+          : null}
       </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      className={node.path === selectedPath ? 'tree-row file selected' : 'tree-row file'}
+    <div
+      className={node.path === selectedPath ? 'tree-row file tree-entry selected' : 'tree-row file tree-entry'}
       style={{ paddingLeft: 8 + depth * 14 }}
-      onClick={() => void onOpen(node.path)}
     >
-      {node.name}
-    </button>
+      <button type="button" className="tree-main" onClick={() => void onOpen(node.path)}>
+        <span>{node.name}</span>
+      </button>
+      <span className="tree-actions">
+        <button type="button" title="重命名" onClick={() => void onRename(node.path)}>
+          <Pencil size={12} />
+        </button>
+        <button type="button" title="删除" onClick={() => void onDelete(node.path)}>
+          <Trash2 size={12} />
+        </button>
+      </span>
+    </div>
   );
 }
 
@@ -1128,6 +1658,54 @@ function languageForPath(path: string): string {
     default:
       return 'plaintext';
   }
+}
+
+function rehydrateChatMessages(log: SessionLogResponse): ChatMessage[] {
+  const taskMessages =
+    log.tasks
+      ?.flatMap((task) =>
+        task.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+        })),
+      )
+      .slice(-80) ?? [];
+  if (taskMessages.length > 0) return taskMessages;
+
+  return log.runs
+    .flatMap((run) =>
+      run.events.flatMap((event): ChatMessage[] => {
+        if (event.type === 'agent.message') {
+          return [{ id: `${run.id}-message-${event.content.length}`, role: 'assistant', content: event.content }];
+        }
+        if (event.type === 'agent.status') {
+          return [{ id: `${run.id}-status-${event.message.length}`, role: 'status', content: event.message }];
+        }
+        if (event.type === 'agent.tool_call') {
+          return [{ id: `${run.id}-tool-call-${event.call.name}`, role: 'tool', content: `调用工具 ${event.call.name}` }];
+        }
+        if (event.type === 'agent.tool_result') {
+          return [
+            {
+              id: `${run.id}-tool-result-${event.result.name}-${event.result.startedAt}`,
+              role: 'tool',
+              content: event.result.ok
+                ? `工具 ${event.result.name} 完成`
+                : `工具 ${event.result.name} 失败：${event.result.error ?? 'unknown error'}`,
+            },
+          ];
+        }
+        if (event.type === 'agent.error') {
+          return [{ id: `${run.id}-error-${event.message.length}`, role: 'error', content: event.message }];
+        }
+        if (event.type === 'agent.done') {
+          return [{ id: `${run.id}-done`, role: 'status', content: `任务停止：${event.finishReason}` }];
+        }
+        return [];
+      }),
+    )
+    .slice(-80);
 }
 
 function formatAgentEvent(event: AgentRunEvent): string {

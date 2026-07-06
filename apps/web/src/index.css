@@ -2513,3 +2513,788 @@ button {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* CodeForge-inspired product UI: warm learning workbench with real agent controls. */
+.codeforge-shell {
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr) 26px;
+  height: 100%;
+  min-width: 0;
+  background: #f7f4ee;
+  color: #262220;
+}
+
+.codeforge-header {
+  display: grid;
+  grid-template-columns: minmax(210px, auto) auto minmax(260px, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid #ded6c8;
+  background: #fbfaf6;
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  background: #2f6f57;
+  color: #fffdf8;
+}
+
+.brand-lockup strong {
+  display: block;
+  color: #262220;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'Songti SC', Georgia,
+    'Times New Roman', serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.brand-lockup small {
+  display: block;
+  overflow: hidden;
+  color: #766d62;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: center;
+  padding: 3px;
+  border: 1px solid #ded6c8;
+  border-radius: 9px;
+  background: #f1ece2;
+}
+
+.view-tabs button,
+.header-meta button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #665d52;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.view-tabs button {
+  padding: 0 12px;
+}
+
+.view-tabs button.active {
+  background: #fffdf8;
+  color: #2f6f57;
+  box-shadow: 0 1px 4px rgba(38, 34, 32, 0.08);
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  gap: 8px;
+}
+
+.model-pill,
+.xp-pill {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 240px;
+  gap: 6px;
+  overflow: hidden;
+  padding: 5px 8px;
+  border: 1px solid #ded6c8;
+  border-radius: 7px;
+  background: #fffdf8;
+  color: #5e564c;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xp-pill {
+  color: #8a6834;
+}
+
+.codeforge-workspace {
+  display: grid;
+  grid-template-columns: minmax(190px, 250px) minmax(420px, 1fr) minmax(310px, 390px);
+  grid-template-rows: minmax(0, 1fr) minmax(36px, auto);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+}
+
+.workspace-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #ded6c8;
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow: 0 8px 24px rgba(38, 34, 32, 0.06);
+}
+
+.file-panel {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-panel {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-panel {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+}
+
+.bottom-panel {
+  grid-column: 2;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+}
+
+.codeforge-workspace .sidebar-heading,
+.codeforge-workspace .assistant-header,
+.codeforge-workspace .editor-breadcrumb {
+  border-bottom-color: #e8e0d2;
+  background: #fbfaf6;
+  color: #2d2924;
+}
+
+.codeforge-workspace .assistant-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.codeforge-workspace .workspace-card {
+  border-bottom-color: #e8e0d2;
+  color: #2d2924;
+}
+
+.codeforge-workspace .workspace-tools {
+  grid-template-columns: minmax(0, 1fr) 34px;
+  padding: 8px;
+  border-bottom-color: #e8e0d2;
+}
+
+.codeforge-workspace input,
+.codeforge-workspace textarea {
+  border-color: #d7ccbc;
+  background: #fbfaf6;
+  color: #2f2a24;
+}
+
+.codeforge-workspace button {
+  border-color: #d7ccbc;
+}
+
+.codeforge-workspace .tree-scroll {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.codeforge-workspace .tree-row {
+  min-height: 26px;
+  border-radius: 6px;
+  color: #4f473e;
+}
+
+.codeforge-workspace .tree-row.file:hover,
+.codeforge-workspace .tree-row.file.selected {
+  background: #efe8dc;
+}
+
+.codeforge-workspace .editor-tabs,
+.codeforge-workspace .editor-toolbar,
+.codeforge-workspace .chat-composer {
+  border-color: #e8e0d2;
+  background: #fbfaf6;
+}
+
+.codeforge-workspace .editor-toolbar {
+  grid-template-columns: repeat(6, minmax(72px, auto)) minmax(0, 1fr);
+}
+
+.codeforge-workspace .editor-toolbar button,
+.codeforge-workspace .chat-composer button,
+.codeforge-workspace .assistant-context button,
+.codeforge-workspace .workspace-tools button {
+  background: #fffdf8;
+  color: #2d2924;
+}
+
+.codeforge-workspace .editor-toolbar button:hover:not(:disabled),
+.codeforge-workspace .chat-composer button:hover:not(:disabled),
+.codeforge-workspace .assistant-context button:hover,
+.codeforge-workspace .workspace-tools button:hover {
+  border-color: #2f6f57;
+}
+
+.codeforge-workspace .chat-composer .compose-actions button:first-child {
+  border-color: #2f6f57;
+  background: #2f6f57;
+  color: #fffdf8;
+}
+
+.codeforge-workspace .assistant-context,
+.codeforge-workspace .assistant-thread {
+  border-color: #e0d8ca;
+  background: #fffdf8;
+}
+
+.codeforge-workspace .assistant-thread {
+  max-height: none;
+}
+
+.codeforge-workspace .chat-bubble.user {
+  border-color: #2f6f57;
+  background: #2f6f57;
+  color: #fffdf8;
+}
+
+.codeforge-workspace .chat-bubble.assistant {
+  border-color: #d8e1d8;
+  background: #f7fbf6;
+  color: #26372e;
+}
+
+.codeforge-workspace .chat-bubble.status {
+  background: #eee9df;
+  color: #695f53;
+}
+
+.codeforge-workspace .log-stream {
+  height: 150px;
+  border-top: 1px solid #e8e0d2;
+  background: #26231f;
+  color: #ede6d8;
+}
+
+.codeforge-workspace .patch-queue {
+  border-color: #e8e0d2;
+  background: #fbfaf6;
+}
+
+.codeforge-workspace .diff-editor-shell {
+  height: 220px;
+  border-top: 1px solid #e8e0d2;
+}
+
+.codeforge-workspace .tree-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  padding-top: 0;
+  padding-right: 4px;
+  padding-bottom: 0;
+}
+
+.codeforge-workspace .tree-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 26px;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.codeforge-workspace .tree-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codeforge-workspace .tree-main svg {
+  flex: 0 0 auto;
+  transition: transform 120ms ease;
+}
+
+.codeforge-workspace .tree-main svg.expanded {
+  transform: rotate(90deg);
+}
+
+.tree-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+}
+
+.tree-entry:hover .tree-actions,
+.tree-entry:focus-within .tree-actions {
+  opacity: 1;
+}
+
+.tree-actions button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #70675c;
+  cursor: pointer;
+}
+
+.tree-actions button:hover {
+  border-color: #d7ccbc;
+  background: #fffdf8;
+  color: #2f6f57;
+}
+
+.codeforge-workspace .bottom-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.bottom-tabs {
+  display: flex;
+  min-height: 34px;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 4px 8px 0;
+  border-bottom: 1px solid #e8e0d2;
+  background: #fbfaf6;
+}
+
+.bottom-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: #665d52;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bottom-tabs button.active {
+  border-color: #ded6c8;
+  background: #fffdf8;
+  color: #2f6f57;
+}
+
+.terminal-panel,
+.review-panel,
+.bottom-content {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.terminal-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 38px;
+  background: #26231f;
+  color: #ede6d8;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+}
+
+.terminal-output {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.terminal-output pre {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.terminal-output pre.stderr,
+.terminal-line.failed,
+.terminal-line.blocked,
+.terminal-line.timed_out {
+  color: #ffb4a8;
+}
+
+.terminal-line.completed {
+  color: #bce2bd;
+}
+
+.terminal-line.muted {
+  color: #a9a094;
+}
+
+.terminal-command {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 72px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-top: 1px solid #3a352f;
+  background: #1f1d1a;
+}
+
+.terminal-command input {
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #ede6d8;
+  font: inherit;
+  outline: none;
+}
+
+.terminal-command button {
+  min-height: 28px;
+  border: 1px solid #6d6255;
+  border-radius: 6px;
+  background: #3a342e;
+  color: #ede6d8;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.terminal-command button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.bottom-content {
+  overflow: auto;
+  padding: 10px;
+  background: #fffdf8;
+}
+
+.review-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #fffdf8;
+}
+
+.learn-workspace {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+.learn-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  gap: 24px;
+  max-width: 1120px;
+  margin: 0 auto 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #ded6c8;
+}
+
+.learn-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #2f6f57;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.learn-hero h1 {
+  max-width: 780px;
+  margin: 8px 0;
+  color: #221f1c;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'Songti SC', Georgia,
+    'Times New Roman', serif;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1.08;
+}
+
+.learn-hero p {
+  max-width: 720px;
+  margin: 0;
+  color: #6a6258;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.learn-score {
+  display: grid;
+  align-self: end;
+  min-height: 120px;
+  place-items: center;
+  border: 1px solid #ded6c8;
+  border-radius: 10px;
+  background: #fffdf8;
+}
+
+.learn-score strong {
+  color: #2f6f57;
+  font-size: 42px;
+}
+
+.learn-score span {
+  color: #766d62;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lesson-grid,
+.learn-columns {
+  display: grid;
+  max-width: 1120px;
+  margin: 0 auto;
+  gap: 10px;
+}
+
+.lesson-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
+.lesson-card,
+.learn-panel {
+  min-width: 0;
+  border: 1px solid #ded6c8;
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow: 0 8px 24px rgba(38, 34, 32, 0.05);
+}
+
+.lesson-card {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+}
+
+.lesson-card > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 9px;
+  background: #f1ece2;
+  color: #766d62;
+  font-weight: 700;
+}
+
+.lesson-card.active > span {
+  background: #e7f1ea;
+  color: #2f6f57;
+}
+
+.lesson-card strong,
+.lesson-card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lesson-card small {
+  margin-top: 3px;
+  color: #766d62;
+}
+
+.learn-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.learn-panel {
+  overflow: hidden;
+  padding: 12px;
+}
+
+.learn-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.learn-panel > header strong {
+  color: #2d2924;
+}
+
+.learn-panel > header small {
+  color: #766d62;
+  font-size: 12px;
+}
+
+.learn-panel > header button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d7ccbc;
+  border-radius: 7px;
+  background: #fbfaf6;
+  color: #2d2924;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.diagnostic-list.compact {
+  max-height: 280px;
+}
+
+.capability-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.capability-list span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  padding: 9px;
+  border-radius: 8px;
+  background: #f4efe6;
+  color: #5e564c;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learn-details {
+  margin-top: 10px;
+  color: #665d52;
+  font-size: 13px;
+}
+
+.learn-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.learn-details p {
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
+
+.learn-panel .trace-viewer {
+  margin: 0;
+}
+
+.codeforge-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 12px;
+  padding: 0 10px;
+  border-top: 1px solid #286148;
+  background: #2f6f57;
+  color: #fffdf8;
+  font-size: 12px;
+}
+
+.codeforge-statusbar span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  body {
+    overflow: auto;
+  }
+
+  .codeforge-shell {
+    min-height: 100%;
+    height: auto;
+  }
+
+  .codeforge-header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    height: auto;
+    padding: 10px 14px;
+  }
+
+  .view-tabs,
+  .header-meta {
+    justify-self: start;
+  }
+
+  .codeforge-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 240px 520px 520px auto;
+  }
+
+  .file-panel,
+  .editor-panel,
+  .chat-panel,
+  .bottom-panel {
+    grid-column: 1;
+  }
+
+  .file-panel {
+    grid-row: 1;
+  }
+
+  .editor-panel {
+    grid-row: 2;
+  }
+
+  .chat-panel {
+    grid-row: 3;
+  }
+
+  .bottom-panel {
+    grid-row: 4;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .learn-hero,
+  .lesson-grid,
+  .learn-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

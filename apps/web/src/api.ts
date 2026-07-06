@@ -8,8 +8,10 @@ import type {
   CreateProjectRequest,
   CreateProjectResponse,
   CreateTaskWorkspaceRequest,
+  CreateWorkspaceEntryRequest,
   CreatePatchPreviewRequest,
   CreatePatchPreviewResponse,
+  DeleteWorkspaceEntryRequest,
   CreateAgentSessionResponse,
   DiagnosticsResponse,
   EvalRunResponse,
@@ -19,6 +21,7 @@ import type {
   PatchProposal,
   ProductTaskListResponse,
   ReadWorkspaceFileResponse,
+  RenameWorkspaceEntryRequest,
   RequestPatchApprovalResponse,
   SearchTextResponse,
   ShellCommandRequest,
@@ -41,6 +44,9 @@ import type {
   VerifySelfRepairResponse,
   WorkspaceFileNode,
   WorkspaceInfo,
+  WorkspaceMutationResponse,
+  WriteWorkspaceFileRequest,
+  WriteWorkspaceFileResponse,
 } from '@wac/shared';
 
 async function json<T>(res: Response): Promise<T> {
@@ -80,6 +86,30 @@ export const api = {
     fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`).then(
       json<ReadWorkspaceFileResponse>,
     ),
+  writeWorkspaceFile: (request: WriteWorkspaceFileRequest) =>
+    fetch('/api/workspace/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WriteWorkspaceFileResponse>),
+  createWorkspaceEntry: (request: CreateWorkspaceEntryRequest) =>
+    fetch('/api/workspace/entry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WorkspaceMutationResponse>),
+  renameWorkspaceEntry: (request: RenameWorkspaceEntryRequest) =>
+    fetch('/api/workspace/entry', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WorkspaceMutationResponse>),
+  deleteWorkspaceEntry: (request: DeleteWorkspaceEntryRequest) =>
+    fetch('/api/workspace/entry', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(json<WorkspaceMutationResponse>),
   searchWorkspace: (query: string) =>
     fetch(`/api/workspace/search?q=${encodeURIComponent(query)}`).then(json<SearchTextResponse>),
   tools: () => fetch('/api/tools').then(json<ToolListResponse>),

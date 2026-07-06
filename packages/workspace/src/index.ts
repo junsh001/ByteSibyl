@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -86,6 +86,33 @@ export class WorkspaceService {
       throw new Error(`Not a file: ${path}`);
     }
     await writeFile(absolute, content, 'utf8');
+  }
+
+  async createTextFile(path: string, content = ''): Promise<void> {
+    const absolute = this.resolveInsideNonRoot(path);
+    await writeFile(absolute, content, { encoding: 'utf8', flag: 'wx' });
+  }
+
+  async createDirectory(path: string): Promise<void> {
+    const absolute = this.resolveInsideNonRoot(path);
+    await mkdir(absolute);
+  }
+
+  async renameEntry(fromPath: string, toPath: string): Promise<void> {
+    const from = this.resolveInsideNonRoot(fromPath);
+    const to = this.resolveInsideNonRoot(toPath);
+    try {
+      await stat(to);
+      throw new Error(`Target already exists: ${toPath}`);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    await rename(from, to);
+  }
+
+  async deleteEntry(path: string): Promise<void> {
+    const absolute = this.resolveInsideNonRoot(path);
+    await rm(absolute, { recursive: true, force: false });
   }
 
   async searchText(query: string): Promise<SearchTextMatch[]> {
@@ -196,6 +223,13 @@ export class WorkspaceService {
       throw new WorkspacePathError(`Path escapes workspace root: ${path}`);
     }
     return absolute;
+  }
+
+  private resolveInsideNonRoot(path: string): string {
+    if (!path.trim()) {
+      throw new WorkspacePathError('Workspace root cannot be mutated.');
+    }
+    return this.resolveInside(path);
   }
 }
 

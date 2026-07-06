@@ -111,6 +111,7 @@ export default function App() {
   const [patchDraft, setPatchDraft] = useState('');
   const [patchProposal, setPatchProposal] = useState<PatchProposal | null>(null);
   const [patchQueue, setPatchQueue] = useState<PatchProposal[]>([]);
+  const [activePatchFilePath, setActivePatchFilePath] = useState<string | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [agentPrompt, setAgentPrompt] = useState('修复当前工作区中的 TypeScript 错误');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -248,6 +249,14 @@ export default function App() {
     : false;
 
   const visibleChatMessages = useMemo(() => chatMessages.slice(-24), [chatMessages]);
+  const dirtyOpenFiles = useMemo(
+    () => openFiles.filter((file) => file.draftContent !== file.originalContent && !file.readOnly),
+    [openFiles],
+  );
+  const activePatchFile = useMemo(() => {
+    const files = patchProposal?.files ?? [];
+    return files.find((file) => file.path === activePatchFilePath) ?? files[0] ?? null;
+  }, [activePatchFilePath, patchProposal]);
 
   async function createSession() {
     setError(null);
@@ -474,14 +483,44 @@ export default function App() {
     setExpandedDirs((current) => new Set([...current, parent]));
   }
 
+  function selectPatchProposal(proposal: PatchProposal | null) {
+    setPatchProposal(proposal);
+    setActivePatchFilePath(proposal?.files?.[0]?.path ?? proposal?.path ?? null);
+  }
+
   async function createPatchPreview() {
     if (!selectedFile) return;
     setError(null);
     try {
       const result = await createPatchPreviewForSelectedFile();
-      setPatchProposal(result.proposal);
+      selectPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function createAllPatchPreview() {
+    if (dirtyOpenFiles.length === 0) return;
+    setError(null);
+    try {
+      const activeSession =
+        session ?? (await api.createSession('Product P6 Multi-file Patch')).session;
+      setSession(activeSession);
+      const result = await api.createPatchPreview({
+        sessionId: activeSession.id,
+        files: dirtyOpenFiles.map((file) => ({
+          path: file.path,
+          kind: 'modify',
+          updatedContent: file.draftContent,
+        })),
+      });
+      await refreshSessionLog(activeSession);
+      selectPatchProposal(result.proposal);
+      setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
+      setApproval(null);
+      setBottomTab('review');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -506,7 +545,7 @@ export default function App() {
     setError(null);
     try {
       const result = await api.discardPatch(patchProposal.id);
-      setPatchProposal(result.proposal);
+      selectPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(null);
       await refreshSessionLog();
@@ -523,9 +562,9 @@ export default function App() {
         patchProposal && ['proposed', 'blocked'].includes(patchProposal.status)
           ? patchProposal
           : (await createPatchPreviewForSelectedFile()).proposal;
-      setPatchProposal(proposal);
+      selectPatchProposal(proposal);
       const result = await api.requestPatchApproval(proposal.id);
-      setPatchProposal(result.proposal);
+      selectPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval ?? null);
       setChatMessages((current) => [
@@ -553,7 +592,7 @@ export default function App() {
     setError(null);
     try {
       const result = await api.approvePatch(approval.id);
-      setPatchProposal(result.proposal);
+      selectPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
       setChatMessages((current) => [
@@ -571,7 +610,7 @@ export default function App() {
     setError(null);
     try {
       const result = await api.rejectPatch(approval.id);
-      setPatchProposal(result.proposal);
+      selectPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
       setApproval(result.approval);
       setChatMessages((current) => [
@@ -589,18 +628,23 @@ export default function App() {
     setError(null);
     try {
       const result = await api.applyPatch(patchProposal.id);
-      setPatchProposal(result.proposal);
+      selectPatchProposal(result.proposal);
       setPatchQueue((current) => upsertPatchProposal(current, result.proposal));
-      setPatchDraft(result.content);
-      if (selectedFile?.path === result.proposal.path) {
-        setSelectedFile({ path: result.proposal.path, content: result.content });
+      const appliedContents = result.contents ?? [{ path: result.proposal.path, content: result.content }];
+      const selectedApplied = selectedFile
+        ? appliedContents.find((file) => file.path === selectedFile.path)
+        : null;
+      if (selectedApplied?.content !== undefined) {
+        setPatchDraft(selectedApplied.content);
+        setSelectedFile({ path: selectedApplied.path, content: selectedApplied.content });
       }
       setOpenFiles((current) =>
-        current.map((file) =>
-          file.path === result.proposal.path
-            ? { ...file, originalContent: result.content, draftContent: result.content }
-            : file,
-        ),
+        current.flatMap((file) => {
+          const applied = appliedContents.find((item) => item.path === file.path);
+          if (!applied) return [file];
+          if (applied.content === undefined) return [];
+          return [{ ...file, originalContent: applied.content, draftContent: applied.content }];
+        }),
       );
       await refreshSessionLog();
       setChatMessages((current) => [
@@ -1064,6 +1108,9 @@ export default function App() {
             <button type="button" disabled={!selectedFile || activeOpenFile?.readOnly} onClick={() => void createPatchPreview()}>
               Review Changes
             </button>
+            <button type="button" disabled={dirtyOpenFiles.length === 0} onClick={() => void createAllPatchPreview()}>
+              Review All
+            </button>
             <button type="button" disabled={!isEditorDirty} onClick={resetEditorDraft}>
               <RotateCcw size={13} />
               Discard Draft
@@ -1323,6 +1370,20 @@ export default function App() {
 
             {bottomTab === 'review' ? (
               <div className="review-panel">
+                {patchProposal ? (
+                  <div className="git-output-card">
+                    <div>
+                      <strong>{patchProposal.commitMessage ?? 'chore: update workspace files'}</strong>
+                      <span>
+                        {patchProposal.files?.length ?? 1} file(s), +{patchProposal.additions} -
+                        {patchProposal.deletions}
+                      </span>
+                    </div>
+                    <button type="button" onClick={() => downloadPatch(patchProposal)}>
+                      Download .patch
+                    </button>
+                  </div>
+                ) : null}
                 {patchQueue.length > 0 ? (
                   <div className="patch-queue">
                     {patchQueue.map((proposal) => (
@@ -1331,8 +1392,9 @@ export default function App() {
                         key={proposal.id}
                         className={patchProposal?.id === proposal.id ? 'active' : ''}
                         onClick={() => {
-                          setPatchProposal(proposal);
-                          void openFile(proposal.path);
+                          selectPatchProposal(proposal);
+                          const firstPath = proposal.files?.[0]?.path ?? proposal.path;
+                          if (firstPath && firstPath !== '(multiple files)') void openFile(firstPath);
                         }}
                       >
                         <span>{proposal.path}</span>
@@ -1341,17 +1403,34 @@ export default function App() {
                     ))}
                   </div>
                 ) : null}
+                {patchProposal?.files && patchProposal.files.length > 1 ? (
+                  <div className="patch-file-list">
+                    {patchProposal.files.map((file) => (
+                      <button
+                        type="button"
+                        key={`${file.oldPath ?? file.path}:${file.path}`}
+                        className={activePatchFile?.path === file.path ? 'active' : ''}
+                        onClick={() => {
+                          setActivePatchFilePath(file.path);
+                          void openFile(file.path).catch(() => undefined);
+                        }}
+                      >
+                        <span>{file.kind}</span>
+                        <strong>{file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}</strong>
+                        <small>
+                          +{file.additions} -{file.deletions}
+                        </small>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {patchProposal ? (
                   <div className="diff-editor-shell">
                     <DiffEditor
-                      key={patchProposal.id}
-                      original={
-                        openFiles.find((file) => file.path === patchProposal.path)?.originalContent ??
-                        selectedFile?.content ??
-                        ''
-                      }
-                      modified={patchProposal.updatedContent ?? patchDraft}
-                      language={languageForPath(patchProposal.path)}
+                      key={`${patchProposal.id}:${activePatchFile?.path ?? patchProposal.path}`}
+                      original={activePatchFile?.originalContent ?? selectedFile?.content ?? ''}
+                      modified={activePatchFile?.updatedContent ?? patchProposal.updatedContent ?? patchDraft}
+                      language={languageForPath(activePatchFile?.path ?? patchProposal.path)}
                       theme="vs-light"
                       options={{
                         readOnly: true,
@@ -1628,6 +1707,16 @@ function upsertPatchProposal(proposals: PatchProposal[], next: PatchProposal): P
   const exists = proposals.some((proposal) => proposal.id === next.id);
   if (!exists) return [...proposals, next].slice(-12);
   return proposals.map((proposal) => (proposal.id === next.id ? next : proposal));
+}
+
+function downloadPatch(proposal: PatchProposal) {
+  const blob = new Blob([proposal.unifiedDiff], { type: 'text/x-patch' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${proposal.id.slice(0, 8)}.patch`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function byteLength(value: string): number {

@@ -34,7 +34,8 @@ export interface HealthResponse {
     | 'phase-19-engineering-route'
     | 'product-phase-01-project-workspace-git-isolation'
     | 'product-phase-02-real-web-ide-editing'
-    | 'product-phase-03-05-task-workflow';
+    | 'product-phase-03-05-task-workflow'
+    | 'product-phase-06-multifile-patch-git-output';
   timestamp: string;
 }
 
@@ -643,6 +644,23 @@ export interface PatchHunk {
   lines: PatchLine[];
 }
 
+export type PatchFileChangeKind = 'create' | 'modify' | 'delete' | 'rename';
+
+export interface PatchFileChange {
+  path: string;
+  oldPath?: string;
+  kind: PatchFileChangeKind;
+  additions: number;
+  deletions: number;
+  oldLineCount: number;
+  newLineCount: number;
+  hunks: PatchHunk[];
+  unifiedDiff: string;
+  originalContent?: string;
+  updatedContent?: string;
+  originalContentHash?: string;
+}
+
 export interface PatchProposal {
   id: PatchProposalId;
   sessionId?: SessionId;
@@ -655,14 +673,24 @@ export interface PatchProposal {
   hunks: PatchHunk[];
   unifiedDiff: string;
   updatedContent?: string;
+  files?: PatchFileChange[];
+  commitMessage?: string;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface CreatePatchFileInput {
+  path: string;
+  oldPath?: string;
+  kind?: PatchFileChangeKind;
+  updatedContent?: string;
+}
+
 export interface CreatePatchPreviewRequest {
   sessionId?: SessionId;
-  path: string;
-  updatedContent: string;
+  path?: string;
+  updatedContent?: string;
+  files?: CreatePatchFileInput[];
 }
 
 export interface CreatePatchPreviewResponse {
@@ -722,6 +750,8 @@ export interface DecidePatchApprovalResponse {
 export interface ApplyPatchResponse {
   proposal: PatchProposal;
   content: string;
+  contents?: { path: string; content?: string }[];
+  gitDiff?: string;
 }
 
 export type ShellCommandStatus = 'completed' | 'failed' | 'timed_out' | 'blocked';

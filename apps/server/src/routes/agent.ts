@@ -82,6 +82,7 @@ export async function registerAgentRoutes(
       if (body.workspaceId && deps.activateWorkspace) {
         await deps.activateWorkspace(body.workspaceId);
       }
+      deps.model.resetUsage?.();
       const runningSession = await deps.sessionStore.updateSessionStatus(session.id, 'running');
       await deps.sessionStore.updateRunStatus(run.id, 'running');
       await deps.sessionStore.updateTask(task.id, { status: 'running', activeRunId: run.id });
@@ -98,6 +99,7 @@ export async function registerAgentRoutes(
           sessionId: session.id,
           taskId: task.id,
           message: body.message,
+          modelRoute: body.modelRoute,
           maxIterations: body.maxIterations,
         },
         {
@@ -127,7 +129,9 @@ export async function registerAgentRoutes(
           const status =
             event.finishReason === 'cancelled'
               ? 'cancelled'
-              : event.finishReason === 'error' || event.finishReason === 'max_iterations'
+              : event.finishReason === 'error' ||
+                  event.finishReason === 'max_iterations' ||
+                  event.finishReason === 'budget_exceeded'
                 ? 'failed'
                 : 'completed';
           await deps.sessionStore.updateTask(task.id, {
@@ -140,6 +144,8 @@ export async function registerAgentRoutes(
                     ? 'waiting_approval'
                     : event.finishReason === 'sandbox_failed'
                       ? 'failed'
+                      : event.finishReason === 'budget_exceeded'
+                        ? 'failed'
                       : status,
             stopReason: stopReasonForFinish(event.finishReason),
             activeRunId: undefined,
@@ -267,9 +273,11 @@ async function appendTaskMessageForEvent(
     });
   }
   if (event.type === 'agent.model_call') {
+    const cost = event.call.cost ? ` $${event.call.cost.totalUsd.toFixed(6)}` : '';
+    const fallback = event.call.fallback ? ' fallback=mock' : '';
     await sessionStore.appendTaskMessage(taskId, {
       role: 'status',
-      content: `模型 ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms`,
+      content: `模型 ${event.call.route ?? 'default'} ${event.call.provider}/${event.call.model} ${event.call.status} ${event.call.latencyMs}ms${cost}${fallback}`,
       refId: event.call.id,
     });
   }
@@ -291,7 +299,8 @@ function stopReasonForFinish(
   reason: Extract<AgentRunEvent, { type: 'agent.done' }>['finishReason'],
 ): ProductTaskStopReason {
   if (reason === 'cancelled') return 'cancelled';
-  if (reason === 'max_iterations') return 'budget_exceeded';
+  if (reason === 'max_iterations') return 'max_iterations';
+  if (reason === 'budget_exceeded') return 'budget_exceeded';
   if (reason === 'approval_required') return 'approval_required';
   if (reason === 'sandbox_failed') return 'sandbox_failed';
   if (reason === 'error') return 'error';

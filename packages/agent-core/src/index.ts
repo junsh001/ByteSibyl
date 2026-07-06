@@ -7,8 +7,10 @@ import type { SubagentCoordinator } from '@wac/subagents';
 import type {
   AgentRunEvent,
   AgentRunRequest,
+  ModelCost,
   ModelCallRecord,
   ModelMessage,
+  ModelRouteRole,
   ToolCallRequest,
   ToolDefinition,
   TodoItem,
@@ -139,10 +141,12 @@ export async function* runAgentLoop(
       response = await options.model.complete({
         messages: modelMessages,
         tools: options.tools,
+        route: request.modelRoute ?? routeForIteration(iteration),
       });
     } catch (err) {
       const latencyMs = Date.now() - modelStartedAt;
       const message = err instanceof Error ? err.message : String(err);
+      const budgetExceeded = isBudgetExceeded(err);
       if (options.planner) {
         yield todoEvent(options.planner.blockCurrent(message), message);
       }
@@ -150,10 +154,11 @@ export async function* runAgentLoop(
         type: 'agent.model_call',
         call: createModelCallRecord({
           provider: options.model,
-          status: message.includes('超时') ? 'timed_out' : 'failed',
+          status: budgetExceeded ? 'failed' : message.includes('超时') ? 'timed_out' : 'failed',
           latencyMs,
           requestSummary,
           error: message,
+          route: request.modelRoute ?? routeForIteration(iteration),
         }),
       };
       yield {
@@ -162,7 +167,7 @@ export async function* runAgentLoop(
       };
       yield {
         type: 'agent.done',
-        finishReason: 'error',
+        finishReason: budgetExceeded ? 'budget_exceeded' : 'error',
       };
       return;
     }
@@ -177,6 +182,9 @@ export async function* runAgentLoop(
         requestSummary,
         responseSummary: summarizeModelResponse(response.content, response.toolCalls?.length ?? 0),
         usage: response.usage,
+        route: response.route,
+        cost: response.cost,
+        fallback: response.fallback,
       }),
     };
     if (options.planner) {
@@ -304,17 +312,23 @@ function createModelCallRecord(input: {
   requestSummary: string;
   responseSummary?: string;
   usage?: ModelCallRecord['usage'];
+  route?: ModelRouteRole;
+  cost?: ModelCost;
+  fallback?: boolean;
   error?: string;
 }): ModelCallRecord {
   return {
     id: randomUUID(),
     provider: input.provider.info.provider,
     model: input.provider.info.model,
+    route: input.route,
     status: input.status,
     latencyMs: input.latencyMs,
     requestSummary: input.requestSummary,
     responseSummary: input.responseSummary,
     usage: input.usage,
+    cost: input.cost,
+    fallback: input.fallback,
     error: input.error,
     createdAt: new Date().toISOString(),
   };
@@ -373,4 +387,15 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+function routeForIteration(iteration: number): ModelRouteRole {
+  return iteration === 1 ? 'default' : 'cheap';
+}
+
+function isBudgetExceeded(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    ('code' in err ? (err as { code?: string }).code === 'budget_exceeded' : false)
+  );
 }

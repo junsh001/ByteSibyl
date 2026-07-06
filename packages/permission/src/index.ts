@@ -50,7 +50,9 @@ export function evaluatePatchApply(
   options: PatchGuardrailOptions = {},
 ): PermissionDecision {
   const violations: GuardrailViolation[] = [];
-  const path = proposal.path.replaceAll('\\', '/');
+  const paths = proposal.files?.flatMap((file) => [file.path, file.oldPath].filter(Boolean) as string[]) ?? [
+    proposal.path,
+  ];
   const changedLines = proposal.additions + proposal.deletions;
   const maxChangedLines = options.maxChangedLines ?? DEFAULT_MAX_CHANGED_LINES;
 
@@ -78,11 +80,14 @@ export function evaluatePatchApply(
       message: `Patch changes ${changedLines} lines, above the Phase 7 limit of ${maxChangedLines}.`,
     });
   }
-  if (FORBIDDEN_PATH_PATTERNS.some((pattern) => pattern.test(path))) {
-    violations.push({
-      code: 'forbidden_path',
-      message: `Patch path is blocked by guardrails: ${path}`,
-    });
+  for (const candidate of paths) {
+    const path = candidate.replaceAll('\\', '/');
+    if (FORBIDDEN_PATH_PATTERNS.some((pattern) => pattern.test(path))) {
+      violations.push({
+        code: 'forbidden_path',
+        message: `Patch path is blocked by guardrails: ${path}`,
+      });
+    }
   }
 
   return evaluatePermission('apply_patch', 'write_patch', violations);

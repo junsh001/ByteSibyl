@@ -115,6 +115,19 @@ export class WorkspaceService {
     await rm(absolute, { recursive: true, force: false });
   }
 
+  async gitDiff(): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync('git', ['diff', '--binary'], {
+        cwd: this.root,
+        maxBuffer: 1024 * 1024,
+      });
+      return `${stdout}${await this.untrackedDiff()}`;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return '';
+      throw err;
+    }
+  }
+
   async searchText(query: string): Promise<SearchTextMatch[]> {
     const trimmed = query.trim();
     if (!trimmed) return [];
@@ -231,6 +244,42 @@ export class WorkspaceService {
     }
     return this.resolveInside(path);
   }
+
+  private async untrackedDiff(): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['ls-files', '--others', '--exclude-standard'], {
+      cwd: this.root,
+      maxBuffer: 1024 * 1024,
+    });
+    const files = stdout.split(/\r?\n/).filter(Boolean);
+    const diffs = await Promise.all(files.map((file) => this.formatNewFileDiff(file)));
+    return diffs.join('');
+  }
+
+  private async formatNewFileDiff(path: string): Promise<string> {
+    const absolute = this.resolveInside(path);
+    const fileStat = await stat(absolute);
+    if (!fileStat.isFile() || fileStat.size > MAX_READ_BYTES) return '';
+    const content = await readFile(absolute, 'utf8');
+    const lines = splitLines(content);
+    return [
+      `diff --git a/${path} b/${path}`,
+      'new file mode 100644',
+      'index 0000000..0000000',
+      '--- /dev/null',
+      `+++ b/${path}`,
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((line) => `+${line}`),
+      '',
+    ].join('\n');
+  }
+}
+
+function splitLines(content: string): string[] {
+  const normalized = content.replace(/\r\n/g, '\n');
+  if (normalized.length === 0) return [];
+  const lines = normalized.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  return lines;
 }
 
 interface ProjectStoreSnapshot {

@@ -13,14 +13,14 @@ ByteSibyl 当前主线是 Web AI Coding Agent Lab：一个教学型 Web Coding A
 
 ## 当前阶段
 
-当前完成到 Phase 19：工程化路线。
+当前产品化推进到 P6：Multi-file Patch & Git Output。
 
-Phase 19 做了四件事：
+已完成的主线：
 
-1. 清理历史原型包 `packages/agent` 和 `packages/db`。
-2. 输出仓库目录审计。
-3. 总结 memory、tools、context、skills 的完成情况和改进方向。
-4. 总结离真正产品可用的差距，并写出交接文档。
+1. Tutorial Lab Phase 0-19 已完成，作为历史教学计划保留。
+2. Productization P0-P5 已完成，Web 已具备项目隔离、真实编辑、sandbox fallback、可恢复任务聊天流。
+3. `product/web-ide-foundation` 增加了左目录、中编辑、底部终端/面板、右 AI Chat 的 IDE 基础交互。
+4. P6 正在实现多文件 Patch Proposal、逐文件 Review、Git diff 输出和 patch 下载。
 
 ## 当前主要入口
 
@@ -46,7 +46,8 @@ Phase 19 做了四件事：
 - `ROADMAP.md`：阶段路线。
 - `docs/ARCHITECTURE.md`：架构边界。
 - `docs/PRODUCT_SPEC.md`：产品定位。
-- `docs/milestones/phase-19-engineering-route.md`：当前阶段验收标准。
+- `docs/PRODUCTIZATION_DEVELOPMENT_PLAN.md`：产品化阶段计划。
+- `docs/product/phases/product-phase-06-multifile-patch-git-output.md`：当前阶段验收标准。
 - `docs/engineering/repository-audit.md`：目录审计。
 - `docs/engineering/runtime-capability-review.md`：runtime 能力总结。
 - `docs/engineering/product-readiness-gap.md`：产品化差距。
@@ -71,12 +72,12 @@ MODEL_NAME=deepseek-chat
 
 ## 验证命令
 
-当前阶段 milestone 要求：
+当前 P6 要求：
 
 ```bash
-npm install
 npm run typecheck
 npm run build
+git diff --check
 ```
 
 可选 smoke：
@@ -85,15 +86,17 @@ npm run build
 curl --noproxy '*' http://127.0.0.1:8787/api/health
 ```
 
-应返回 `phase-19-engineering-route`。
+应返回当前 product phase。
 
 ## 注意事项
 
 - `data/` 和 `workspaces/` 是运行时目录，已忽略，不提交。
 - 当前 session store 是 JSON 文件：`data/session-log.json`。
 - 当前不是多用户 SaaS，也不是强 sandbox。
-- 当前 Web 编辑区仍偏展示和 patch draft，不是完整 IDE 编辑器。
+- 当前 Terminal 仍受 Shell Runner 白名单限制，非白名单命令会被 blocked。
 - 当前 subagents 是角色/权限 summary，不是并行多 Agent 执行。
+- P6 多文件 patch 不自动创建 commit 或 GitHub PR，只生成 patch 和 commit message 草稿。
+- P6 conflict 检测使用原内容 hash，不实现复杂 merge。
 
 ## 已知本地脏改动
 
@@ -101,14 +104,23 @@ curl --noproxy '*' http://127.0.0.1:8787/api/health
 
 - `examples/buggy-ts-project/src/index.ts`
 
-它不属于 Phase 19 清理范围。除非用户明确要求，不要提交或回滚它。
+它不属于产品化阶段范围。除非用户明确要求，不要提交或回滚它。
+
+## 当前分支和 PR
+
+- 当前 P6 分支：`product/p6-multifile-patch-git-output`。
+- 前置 UI 分支：`product/web-ide-foundation`。
+- 前置 PR：#25 `完善 Web IDE 基础交互`，base 为 `product/p3-p5-task-workflow`。
+- P6 PR 应基于 `product/web-ide-foundation` 创建；如果 #25 已合并，再 retarget 到合并后的产品化主线。
 
 ## 下一步建议
 
-如果继续产品化，建议从以下方向开新阶段：
+P6 完成后继续 P7：Model Routing & Cost Control。
 
-1. Git workspace/worktree 隔离。
-2. Docker sandbox 执行。
-3. 多文件 Patch 与更完整 Diff Apply。
-4. Conversation memory 和 long-running task resume。
-5. 数据库存储替代 JSON SessionStore。
+P7 重点：
+
+1. cheap/default/reasoning/reviewer 模型路由。
+2. per-run token/cost budget。
+3. provider timeout/retry/fallback。
+4. Web 展示 usage/cost。
+5. 模型调用摘要进入审计，避免泄漏敏感 prompt。

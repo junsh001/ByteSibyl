@@ -117,7 +117,7 @@ await registerEvalRoutes(app, { rootDir: config.rootDir, tasksRoot: config.evalT
 app.get('/api/health', async (): Promise<HealthResponse> => ({
   ok: true,
   service: 'web-ai-coding-agent-lab',
-  phase: 'product-phase-03-05-task-workflow',
+  phase: 'product-phase-06-multifile-patch-git-output',
   timestamp: new Date().toISOString(),
 }));
 
